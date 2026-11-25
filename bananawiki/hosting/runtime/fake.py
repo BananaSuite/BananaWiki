@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from ...core.timeutil import utcnow
-from . import DomainCheck, LogTail, RuntimeFailure, TenantSpec, TenantStatus, WikiUser
+from . import DomainCheck, LogTail, RuntimeFailure, TenantSpec, TenantStatus, WikiAccount, WikiUser
 
 
 @dataclass
@@ -30,6 +30,11 @@ class FakeTenant:
     quarantined: bool = False
     snapshots: list[str] = field(default_factory=list)
     two_step: set[str] = field(default_factory=set)  # accounts with two-step verification set up
+    # The account links tool: wiki user id (the user name here) -> link / address / state / no password.
+    links: dict[str, dict[str, str]] = field(default_factory=dict)
+    emails: dict[str, str] = field(default_factory=dict)
+    states: dict[str, str] = field(default_factory=dict)
+    passwordless: set[str] = field(default_factory=set)
 
 
 class FakeRuntime:
@@ -157,6 +162,46 @@ class FakeRuntime:
         tenant = self._tenant(spec)
         users = list(tenant.users.values())
         return users[offset:offset + limit], len(users)
+
+    def list_links(self, spec: TenantSpec, *, limit: int = 500, offset: int = 0) -> tuple[list[WikiAccount], int]:
+        """The fake wiki's user ids are its user names."""
+        self._record("list_links", spec.data_dir_name)
+        tenant = self._tenant(spec)
+        accounts = [WikiAccount(id=user.username, username=user.username, role=user.role,
+                                email=tenant.emails.get(user.username, ""),
+                                status=tenant.states.get(user.username, "active"),
+                                password_set=user.username not in tenant.passwordless,
+                                link=tenant.links.get(user.username))
+                    for user in tenant.users.values()]
+        return accounts[offset:offset + limit], len(accounts)
+
+    def link_users(self, spec: TenantSpec, links: Sequence[tuple[str, str, str]], *, actor: str,
+                   rule: str) -> tuple[list[str], dict[str, str]]:
+        self._record("link_users", f"{rule}:{len(links)}")
+        tenant = self._tenant(spec)
+        linked, refused = [], {}
+        for user_id, account_id, name in links:
+            theirs = next((uid for uid, link in tenant.links.items() if link["account_id"] == account_id), None)
+            if user_id not in tenant.users:
+                refused[user_id] = "user_not_found"
+            elif user_id in tenant.links:
+                refused[user_id] = "already_linked" if tenant.links[user_id]["account_id"] == account_id \
+                    else "user_linked"
+            elif theirs is not None:
+                refused[user_id] = "account_linked"
+            else:
+                tenant.links[user_id] = {"account_id": account_id, "portal_username": name,
+                                         "linked_at": "2026-01-01 00:00:00"}
+                linked.append(user_id)
+        return linked, refused
+
+    def unlink_user(self, spec: TenantSpec, wiki_user_id: str, *, actor: str) -> str | None:
+        self._record("unlink_user", wiki_user_id)
+        tenant = self._tenant(spec)
+        if wiki_user_id not in tenant.users:
+            raise RuntimeFailure("user_not_found", wiki_user_id)
+        link = tenant.links.pop(wiki_user_id, None)
+        return link["account_id"] if link else None
 
     def set_user_password(self, spec: TenantSpec, username: str, password: str, role: str) -> None:
         self._record("set_user_password", username)

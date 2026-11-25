@@ -32,8 +32,6 @@ FEATURE = Feature(
     nav=[
         NavItem("canvas.nav", "canvas.index", icon="shapes", area="apps", order=40,
                 visible=access.can_open_canvas),
-        NavItem("canvas.admin.nav", "canvas.admin_settings", icon="shapes", area="admin", order=62,
-                visible=access.is_admin),
     ],
     jobs=[Job("canvas.prune", 3600, _prune)],
     events={

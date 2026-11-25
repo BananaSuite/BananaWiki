@@ -857,18 +857,7 @@ def purge_tombstones() -> int:
     ).rowcount
 
 
-# Impersonation log and data export
-
-
-def log_impersonation_start(admin_id: str, target_id: str) -> int:
-    return db.insert("hosting_impersonation_logs", {"admin_account_id": admin_id, "target_account_id": target_id,
-                                                    "started_at": now_sql()})
-
-
-def log_impersonation_stop(log_id: int | None) -> None:
-    if log_id:
-        db.execute("UPDATE hosting_impersonation_logs SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
-                   (now_sql(), log_id))
+# Data export (the impersonation log is kept by :mod:`.acting`)
 
 
 _PRIVATE = ("password", "email_verification_token_hash", "password_reset_token_hash", "totp_secret_encrypted",

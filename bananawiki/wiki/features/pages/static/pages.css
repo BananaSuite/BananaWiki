@@ -90,7 +90,8 @@
 .editor__pane-labels span { padding: .5rem 1rem; font-size: var(--font-size-sm); font-weight: 600; color: var(--heading); }
 /* The separator is the first label's end border: the same x as the textarea's own border below it. */
 .editor__pane-labels span:first-child { border-inline-end: 1px solid var(--border-strong); }
-.editor .toolbar { position: sticky; top: var(--topbar-height); z-index: 5; border-color: var(--border-strong); gap: .1rem; padding: .4rem; }
+/* The toolbar sticks under the page's sticky header (its height: --editor-header-height, set by editor.js). */
+.editor .toolbar { position: sticky; top: calc(var(--topbar-height) + var(--editor-header-height, 0px)); z-index: 5; border-color: var(--border-strong); gap: .1rem; padding: .4rem; }
 .editor .toolbar .btn { min-width: 2rem; padding-inline: .45rem; }
 .editor__separator { align-self: center; width: 1px; height: 1.25rem; margin-inline: .4rem; background: var(--border-strong); }
 .editor .toolbar .menu__panel { left: 0; right: auto; }

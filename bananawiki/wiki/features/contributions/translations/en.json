@@ -32,8 +32,8 @@
   "contributions.field.reason": "Reason",
   "contributions.field.reason_hint": "What you changed and why.",
   "contributions.field.title": "Title",
-  "contributions.mine_title": "My contributions",
-  "contributions.nav.mine": "My contributions",
+  "contributions.mine_title": "My proposed edits",
+  "contributions.nav.mine": "My proposed edits",
   "contributions.nav.review": "Proposed edits",
   "contributions.no_content_change": "The content is unchanged.",
   "contributions.no_text_withdrawn": "The proposer withdrew this proposal. Its text is no longer kept.",
@@ -67,6 +67,7 @@
   "contributions.quota.requests_title": "Quota requests",
   "contributions.quota.reviewed": "Request of {user} reviewed.",
   "contributions.quota.set_for": "Quota of {user}",
+  "contributions.quota.set_button": "Set quota",
   "contributions.quota.set_hint": "-1 means unlimited. Leave empty for the default.",
   "contributions.quota.status.approved": "approved",
   "contributions.quota.status.cancelled": "cancelled",
@@ -81,10 +82,7 @@
   "contributions.review": "Review",
   "contributions.review_reason": "Note for the author",
   "contributions.review_title": "Proposed edits",
-  "contributions.setting.contribution_quota_auto_approve_max": "Auto-approve requests up to (proposals)",
-  "contributions.setting.contribution_quota_auto_approve_max_hint": "Requests up to this number are approved automatically. 0 means an administrator always decides.",
   "contributions.setting.default_contribution_quota": "Proposals waiting per user",
-  "contributions.setting.quota_request_cooldown_hours": "Wait between quota requests (hours)",
   "contributions.settings_title": "Settings",
   "contributions.status.approved": "Approved",
   "contributions.status.denied": "Denied",
@@ -105,5 +103,5 @@
   "contributions.withdrawn": "Proposal withdrawn.",
   "contributions.withdrawn_can_edit": "Proposal withdrawn. You can edit this page directly.",
   "feature.contributions.description": "People who cannot edit a page can propose changes that reviewers approve.",
-  "feature.contributions.name": "Contribution approval"
+  "feature.contributions.name": "Proposed edits"
 }

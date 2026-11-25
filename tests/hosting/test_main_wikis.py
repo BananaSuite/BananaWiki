@@ -163,6 +163,6 @@ def test_an_owner_deleting_their_account_is_not_told_about_the_mark(portal, web,
     login(customer, owner)
     page = customer.post("/account/delete", data={"current_password": PASSWORD},
                          follow_redirects=True).get_data(as_text=True)
-    assert "kept by the platform&#39;s administrators" in page
+    assert "administrators keep your wiki" in page
     assert "main wiki" not in page.lower() and "main mark" not in page.lower()
     assert query("SELECT deleted_at FROM accounts WHERE id = ?", (owner["id"],), one=True)["deleted_at"] is None

@@ -18,7 +18,8 @@ Slots filled here
   signed-in people.
 * ``account.display_sections`` - "Take the sunglasses off" under "Customise", only while they are on.
 * ``admin.appearance`` - the sunglasses actions for every account, the easter egg switches and the editor
-  of the key-sequence eggs.
+  of the key-sequence eggs. The switches and the list are saved by the page's one Save, through the
+  ``admin.appearance.save`` interceptor point (:func:`.routes.save_with_appearance`).
 * ``admin.user_detail`` - the eggs an account found, and removing them.
 * ``error.card`` - the mascot peeking into the "page not found" card.
 * ``page.head`` - the key-sequence eggs (``#banana-eggs``) with their script and stylesheet, on every page.
@@ -37,7 +38,7 @@ from ...i18n import t
 from ...registry import Feature
 from ...templating import accessibility_prefs
 from . import easter, service
-from .routes import bp, user_section
+from .routes import bp, save_with_appearance, user_section
 
 
 def topbar() -> str:
@@ -90,7 +91,9 @@ def admin_section() -> str:
         "emojis": shared.EMOJIS, "badges": easter.badge_choices(), "mascot": True, "egg": NEW_EGG,
         "reset": shared.default_config()["eggs"], "buttonClass": "btn btn--small",
     }
+    # After a refused Save the switches and the list show what was sent, not what is stored.
     return render_template("mascot/_admin.html", sprite=sprite.svg, eggs=eggs, egg_ids=service.EGGS,
+                           switches=g.get("easter_egg_switches") or eggs,
                            clicks=sprite.CLICKS_FOR_SHADES, egg_list=submitted or easter.stored_text(),
                            egg_errors=g.get("easter_egg_errors") or [], editor=Markup(shared.script_json(options)))
 
@@ -112,6 +115,7 @@ FEATURE = Feature(
     description="feature.mascot.description",
     toggle="plugin",
     blueprints=[bp],
+    interceptors={"admin.appearance.save": save_with_appearance},
     slots={
         "topbar.brand": topbar,
         "account.display_sections": display_section,

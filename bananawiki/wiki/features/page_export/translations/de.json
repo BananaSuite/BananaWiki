@@ -11,7 +11,7 @@
   "page_export.bulk.bullet.title": "Der Titel stammt aus dem Dateikopf (Front Matter), der ersten #-Überschrift oder dem Dateinamen.",
   "page_export.bulk.existing": "Wenn die Seite bereits existiert",
   "page_export.bulk.export_button": "Markdown-Archiv herunterladen",
-  "page_export.bulk.export_intro": "Ein ZIP-Archiv aller Seiten als Markdown-Dateien in Kategorieordnern, mit Bildern und Anhängen. Konten, Verlauf und Einstellungen sind nicht enthalten.",
+  "page_export.bulk.export_intro": "Ein ZIP-Archiv aller Seiten als Markdown in Kategorieordnern, mit Bildern und Anhängen. Konten, Verlauf und Einstellungen sind nicht enthalten.",
   "page_export.bulk.export_title": "Export",
   "page_export.bulk.files": "Dateien",
   "page_export.bulk.import_button": "Importieren",

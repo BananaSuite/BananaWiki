@@ -25,6 +25,7 @@ from bananawiki.ops.manager import Manager
 from bananawiki.ops.system import System
 from tests.hosting.agent_fakes import make_runtime, make_spec, provision
 from tests.hosting.conftest import login, make_account, make_wiki, portal, query, web  # noqa: F401
+from tests.hosting.hosting_support import PASSWORD
 from tests.ops.ops_fakes import FakeSystem, Upstream, legacy_install
 
 
@@ -141,7 +142,7 @@ def test_w5_w4_admin_viewing_a_migrated_wiki_leaves_the_owners_initial_password(
     admin_client = portal.test_client()
     login(admin_client, admin)
     assert "initial-secret" not in admin_client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
-    admin_client.post(f"/admin/accounts/{owner['id']}/impersonate")
+    admin_client.post(f"/admin/accounts/{owner['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
     assert "initial-secret" not in admin_client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
     stored = query("SELECT admin_password_plain FROM instances WHERE id = ?", (wiki["id"],), one=True)
     assert stored["admin_password_plain"] == "initial-secret"
@@ -317,7 +318,7 @@ def test_w5_2_the_admin_dashboard_calls_attention_to_the_firewall(web, portal, m
     login(web, make_account(admin=True))
     page = web.get("/admin").get_data(as_text=True)
     assert 'id="host-firewall"' in page
-    assert ("is not loaded on this server" if loaded is False else "has not been checked since") in page
+    assert ("is not loaded:" if loaded is False else "has not been checked since") in page
     portal.extensions["bananawiki.hosting.runtime"].firewall = {"loaded": True, "reason": "", "checked_at": ""}
     assert 'id="host-firewall"' not in web.get("/admin").get_data(as_text=True)
 

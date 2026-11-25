@@ -4,30 +4,41 @@
 {% block title %}{{ t('hosting.collaborators.title') }}{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('dashboard.instance_detail', instance_id=instance.id) }}">{{ instance.subdomain }}</a></nav>
-<h1>{{ t('hosting.collaborators.title') }}</h1>
-{% macro perms_fields(selected=[], role='custom') %}
-<label class="field">{{ t('hosting.collaborators.role') }}<select name="role">
+{#- Every collaborator's access is one form with one Save, in the header. Remove, Add and the transfer are
+    actions with their own buttons. A collaborator the viewer may not change (full access, for a collaborator
+    managing the others) is listed without controls. -#}
+{% set editable = collaborators|selectattr('editable')|list %}
+<header class="page-header{% if editable %} page-header--save{% endif %}"><h1>{{ t('hosting.collaborators.title') }}</h1>
+  {% if editable %}<div class="page-header__actions"><button class="btn btn--primary" type="submit" form="collaborators-form">{{ t('common.save') }}</button></div>{% endif %}</header>
+{% macro perms_fields(selected=[], role='custom', suffix='') %}
+<label class="field">{{ t('hosting.collaborators.role') }}<select name="role{{ suffix }}">
   <option value="custom"{% if role == 'custom' %} selected{% endif %}>{{ t('hosting.collaborators.custom') }}</option>
   <option value="full_access"{% if role == 'full_access' %} selected{% endif %}>{{ t('hosting.collaborators.full_access') }}</option></select></label>
 <fieldset class="plain"><legend>{{ t('hosting.collaborators.permissions') }}</legend>
 {#- "download" stays a stored permission, but only owners can download (a terminated wiki), so it is not offered. -#}
-<div class="check-grid">{% for p in permissions if p != 'download' %}{{ ui.check('permissions', t('hosting.permission.' ~ p), checked=p in selected, value=p) }}{% endfor %}</div></fieldset>
+<div class="check-grid">{% for p in permissions if p != 'download' %}{{ ui.check('permissions' ~ suffix, t('hosting.permission.' ~ p), checked=p in selected, value=p) }}{% endfor %}</div></fieldset>
 {% endmacro %}
-{% if collaborators %}<div class="panel-list">{% endif %}
+{#- Anyone listed may leave: their own Remove is offered even without controls. -#}
+{% for c in collaborators if c.editable or c.is_viewer %}<form method="post" action="{{ url_for('dashboard.remove_collaborator', instance_id=instance.id, collab_account_id=c.account_id) }}" id="remove-collab-{{ c.account_id }}" data-confirm="{{ t('hosting.common.are_you_sure') }}" hidden>{{ ui.csrf() }}</form>{% endfor %}
+{% if collaborators %}
+<form method="post" action="{{ url_for('dashboard.save_collaborators', instance_id=instance.id) }}" id="collaborators-form">{{ ui.csrf() }}
+<div class="panel-list">
 {% for c in collaborators %}
+{% if c.editable %}
 <details class="card"><summary>{{ c.username }} · {{ t('hosting.collaborators.' ~ c.role) }}</summary>
-  <form method="post" action="{{ url_for('dashboard.remove_collaborator', instance_id=instance.id, collab_account_id=c.account_id) }}" id="remove-collab-{{ c.account_id }}" data-confirm="{{ t('hosting.common.are_you_sure') }}" hidden>{{ ui.csrf() }}</form>
-  <form method="post" action="{{ url_for('dashboard.update_collaborator', instance_id=instance.id, collab_account_id=c.account_id) }}" class="form">{{ ui.csrf() }}
-    {{ perms_fields(c.granted, c.role) }}
-    <div class="btn-row"><button class="btn btn--small btn--primary" type="submit">{{ t('common.save') }}</button>
-      <button class="btn btn--small btn--danger-quiet" type="submit" form="remove-collab-{{ c.account_id }}">{{ t('hosting.collaborators.remove') }}</button></div></form>
+  <div class="form"><input type="hidden" name="members" value="{{ c.account_id }}">
+    {{ perms_fields(c.granted, c.role, '-' ~ c.account_id) }}
+    <div class="btn-row"><button class="btn btn--small btn--danger-quiet" type="submit" form="remove-collab-{{ c.account_id }}">{{ t('hosting.collaborators.remove') }}</button></div></div>
 </details>
-{% else %}<p class="muted">{{ t('hosting.collaborators.empty') }}</p>{% endfor %}
-{% if collaborators %}</div>{% endif %}
+{% else %}<div class="card split"><span>{{ c.username }} · {{ t('hosting.collaborators.' ~ c.role) }}</span>
+  {% if c.is_viewer %}<button class="btn btn--small btn--danger-quiet" type="submit" form="remove-collab-{{ c.account_id }}">{{ t('hosting.collaborators.remove') }}</button>{% endif %}</div>{% endif %}
+{% endfor %}
+</div></form>
+{% else %}<p class="muted">{{ t('hosting.collaborators.empty') }}</p>{% endif %}
 <section class="card"><h2>{{ t('hosting.collaborators.add') }}</h2>
 <form method="post" action="{{ url_for('dashboard.add_collaborator', instance_id=instance.id) }}" class="form">{{ ui.csrf() }}
   {{ ui.field('username', t('hosting.field.username'), required=true) }}{{ perms_fields(['view']) }}
-  <p><button class="btn btn--primary" type="submit">{{ t('hosting.collaborators.add') }}</button></p></form></section>
+  <p><button class="btn" type="submit">{{ t('hosting.collaborators.add') }}</button></p></form></section>
 {% if can_transfer or transfer or is_admin_view %}
 <section class="card"><h2>{{ t('hosting.transfers.title') }}</h2>
 {% if transfer %}<p>{{ t('hosting.transfers.pending', username=transfer.to_username) }}</p>

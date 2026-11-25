@@ -22,6 +22,7 @@ NEEDS: dict[str, Check] = {
     "comment": access.can_comment,
     "write": access.can_write,
     "owner": access.is_owner,
+    "delete": access.can_delete,
     "export": access.can_export,
 }
 

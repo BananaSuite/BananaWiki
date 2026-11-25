@@ -12,7 +12,7 @@ Una pagina va bene per un testo da leggere dall'alto in basso. Un canvas va bene
 
 ## Permessi
 
-Gli amministratori decidono quali ruoli possono usare i canvas e quali possono crearli; possono anche permettere a singole persone di crearli con il loro ruolo personalizzato o i loro permessi individuali. Chi ha creato il canvas lo condivide con persone o ruoli, in lettura o in modifica.
+I canvas seguono le stesse regole delle bacheche: i membri li creano e gestiscono i propri, un canvas nuovo lo vede solo chi l'ha creato, che lo rende visibile a tutti i membri o ai visitatori e lo condivide con persone o ruoli, in lettura o in modifica. Gli editor modificano ogni canvas che possono aprire.
 
 ## Cronologia ed esportazione
 

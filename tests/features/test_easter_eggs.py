@@ -60,7 +60,7 @@ def test_switching_the_key_sequences_off_takes_every_key_sequence_egg_off_the_pa
     button = _button(html)
     assert 'data-mascot-clicks="11"' in button and "data-mascot-konami" not in button
     assert 'id="banana-eggs"' not in html and "banana-eggs.js" not in html
-    assert 'name="egg_konami" value="1">' in admin_client.get("/admin/appearance").get_data(as_text=True)
+    assert 'name="egg_konami" value="1" form="appearance-form">' in admin_client.get("/admin/appearance").get_data(as_text=True)
 
 
 def test_switching_the_peek_off_keeps_the_plain_not_found_card(app, admin_client):
@@ -151,4 +151,59 @@ def test_the_easter_egg_settings_go_with_the_mascot_plugin(app, admin_client):
     set_feature(app, "mascot", False)
     assert "mascot-eggs-heading" not in admin_client.get("/admin/appearance").get_data(as_text=True)
     assert admin_client.post("/admin/appearance/easter-eggs", data={}).status_code == 404
+    assert _eggs(app) == ALL_ON
+
+
+# Admin -> Appearance has one Save, in its header: it stores the switches with the colours.
+
+
+def _page_save(client, *on, **extra):
+    from .test_site_admin_appearance import colors_form
+
+    data = {**colors_form(), "mascot_eggs": "1", **{f"egg_{egg}": "1" for egg in on}}
+    data["easter_egg_configs"] = extra.pop("easter_egg_configs", _stored_list(client))
+    return client.post("/admin/appearance/colors", data={**data, **extra})
+
+
+def _stored_list(client):
+    import html
+
+    page = client.get("/admin/appearance").get_data(as_text=True)
+    return html.unescape(re.search(r'name="easter_egg_configs" value="([^"]*)"', page).group(1))
+
+
+def test_the_switches_join_the_pages_one_form_and_apply_only_on_save(admin_client):
+    page = admin_client.get("/admin/appearance").get_data(as_text=True)
+    assert page.count('form="appearance-form"') >= len(ALL_ON) + 3  # the header's Save, the marker, the list
+    assert 'name="mascot_eggs" value="1" form="appearance-form"' in page
+    switches = re.findall(r'<input type="checkbox" name="egg_[a-z]+"[^>]*>', page)
+    assert len(switches) == len(ALL_ON) and not any("data-autosubmit" in switch for switch in switches)
+    assert "/admin/appearance/easter-eggs" not in page  # no form of their own, no button of their own
+
+
+def test_the_pages_save_stores_the_switches_and_the_colours(app, admin_client, db):
+    assert _page_save(admin_client, "sunglasses", "peek").status_code == 302
+    assert _eggs(app) == {**ALL_ON, "konami": False}
+    assert db.scalar("SELECT default_theme_mode FROM site_settings") == "light"
+    actions = [row["action"] for row in db.all("SELECT action FROM audit_log ORDER BY id")]
+    assert "mascot.easter_eggs_changed" in actions and "appearance.updated" in actions
+    assert "mascot.easter_egg_list_changed" not in actions, "the list sent back unchanged records nothing"
+
+
+def test_saving_only_the_colours_leaves_the_switches_alone(app, admin_client):
+    from .test_site_admin_appearance import colors_form
+
+    assert admin_client.post("/admin/appearance/colors", data=colors_form()).status_code == 302
+    assert _eggs(app) == ALL_ON
+
+
+def test_the_pages_save_while_impersonating_keeps_the_switches(app, make_user, login, db):
+    superuser = make_user("super", role="admin", is_superuser=1)
+    other_admin = make_user("other_admin", role="admin")
+    client = app.test_client()
+    login(client, superuser)
+    client.post(f"/admin/users/{other_admin['id']}/impersonate")
+    assert _page_save(client, *ALL_ON).status_code == 302, "the colours, with the eggs as they are"
+    assert db.scalar("SELECT default_theme_mode FROM site_settings") == "light"
+    assert _page_save(client, "peek").status_code == 403
     assert _eggs(app) == ALL_ON

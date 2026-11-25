@@ -1,10 +1,13 @@
 """Routes: sign in with the hosting portal, account linking and unlinking.
 
-/platform-oauth/login, /platform-oauth/callback, /platform-oauth/connect (the
+/platform-oauth/login (``?create=1``: sign up at the portal first, while the
+wiki takes hosting accounts only), /platform-oauth/callback, /platform-oauth/connect (the
 first sign-in: create an account or connect an existing one),
 /platform-oauth/signup (create), /platform-oauth/merge (connect, then the
 two-step code), /platform-oauth/link-callback,
-/settings/link-platform-account, /settings/unlink-platform-account.
+/settings/link-platform-account, /settings/unlink-platform-account (from
+**Settings → Security → Sign-in methods**), /settings/confirm-with-hosting
+and /platform-oauth/confirm-callback (confirming a change, :mod:`.reauth`).
 Every route answers 404 while single sign-on is not configured, and while
 the wiki takes its own accounts only (:mod:`.signin_modes`).
 """
@@ -20,11 +23,12 @@ from typing import Any
 from flask import abort, redirect, render_template, request, session, url_for
 
 from ....core.ratelimit import SqlLimiter
-from ....core.web import allow_form_action, client_network, safe_next
+from ....core.web import client_network, safe_next
 from ... import accounts, auth, settings
 from ...db import db
 from ...i18n import t
-from . import invites, routes_signup, signin, signin_modes, signup, two_step
+from ..audit.service import record
+from . import invites, reauth, routes_signup, signin, signin_modes, signup, two_step
 from . import platform_oauth as oauth
 from .blueprint import SIGN_IN_GATES, bp
 
@@ -62,11 +66,11 @@ def _pending() -> dict[str, Any] | None:
     return pending
 
 
-def _finish(user: dict[str, Any], next_url: str, account_id: str):
+def _finish(user: dict[str, Any], next_url: str, account_id: str, acting: dict[str, Any] | None = None):
     session.pop(oauth.PENDING_KEY, None)
     session.pop(oauth.INVITE_KEY, None)
     return signin.finish(user, remember=False, next_url=next_url, method="platform_oauth",
-                         platform_account=account_id)
+                         platform_account=account_id, acting=acting)
 
 
 # Sign in
@@ -79,13 +83,16 @@ def _finish(user: dict[str, Any], next_url: str, account_id: str):
 def platform_oauth_login():
     if auth.current_user() is not None:
         return redirect("/")
-    return redirect(oauth.authorize_url("login", next_url=safe_next("", request.args.get("next"))))
+    # "Create an account" on the sign-in page of a wiki that takes hosting accounts only.
+    create = request.args.get("create") == "1" and signin_modes.current() == signin_modes.PLATFORM
+    return redirect(oauth.authorize_url("login", next_url=safe_next("", request.args.get("next")), create=create))
 
 
 def _provision(account_id: str, portal_username: str, username: str, invite_code: str | None):
     """Create a wiki account for a portal account, under the sign-up policy."""
+    # It never gets a password of its own (password_set 0): it confirms changes with the portal, and may set one.
     user = signup.register(username, None, invite_code=invite_code,
-                           password_hash=accounts.hash_password(secrets.token_urlsafe(32)))
+                           password_hash=accounts.hash_password(secrets.token_urlsafe(32)), extra={"password_set": 0})
     try:
         oauth.link(user, account_id, portal_username)
     except oauth.OAuthError:
@@ -107,13 +114,20 @@ def platform_oauth_callback():
         code = request.args.get("code", "")
         if not code:
             raise oauth.OAuthError("auth.oauth.error.portal", "callback without a code")
-        account_id, portal_username = oauth.fetch_profile(oauth.exchange_code(code, state, "login"))
+        identity = oauth.fetch_identity(oauth.exchange_code(code, state, "login"))
+        account_id, portal_username = identity.sub, identity.username
+        refusal = oauth.acting_refusal(identity)
+        if refusal:
+            raise oauth.OAuthError(refusal)
         user = oauth.linked_user(account_id)
         if user is not None and not oauth.confirm_link(account_id, user):
             user = None  # a stale link (the previous owner of this wiki): the connect page decides
         user = user or oauth.realign_portal_link(account_id, portal_username)
         if user is not None:
-            return _finish(user, entry.get("next") or "", account_id)
+            return _finish(user, entry.get("next") or "", account_id, identity.act)
+        if identity.act is not None:
+            # Accounts are linked and created by the people themselves, never by someone acting as them.
+            raise oauth.OAuthError("auth.acting.error.no_account")
         local = accounts.by_username(portal_username)
         # The portal may already know a link of the same-named account (made by 1.4): that settles it.
         # A link to someone else's portal account only makes the name unavailable (see the connect page).
@@ -123,8 +137,12 @@ def platform_oauth_callback():
     except oauth.OAuthError as error:
         return _fail(error)
     session.pop(MERGE_CODE_KEY, None)
-    session[oauth.PENDING_KEY] = {"sub": account_id, "username": portal_username,
-                                  "next": entry.get("next") or "", "at": time.time()}
+    pending = {"sub": account_id, "username": portal_username, "next": entry.get("next") or "", "at": time.time()}
+    session[oauth.PENDING_KEY] = pending
+    if entry.get("create"):
+        # The portal account was just created for this wiki: no choice to make, the wiki account follows
+        # under the sign-up policy (the connect page takes over when it cannot, e.g. the name is taken).
+        return _create_account(pending, portal_username, invites.normalize(session.get(oauth.INVITE_KEY)))
     return redirect(url_for("auth.platform_oauth_connect"))
 
 
@@ -176,7 +194,12 @@ def platform_oauth_signup():
     if request.method == "GET":
         return redirect(url_for("auth.platform_oauth_connect"))
     username = (request.form.get("username") or "").strip()[:50]
-    invite = invites.normalize(request.form.get("invite_code"))
+    return _create_account(pending, username, invites.normalize(request.form.get("invite_code")))
+
+
+def _create_account(pending: dict[str, Any], username: str, invite: str):
+    """Create the wiki account named *username* for the pending portal account, or the connect page saying
+    why not (with what was given)."""
     if not signup.signup_available():
         return _connect_page(pending, status=400, create_error=t("auth.signup.error.closed"), username=username)
     # A code tried here counts as one tried on /signup: the same budget bounds guessing on both paths.
@@ -316,30 +339,55 @@ def platform_oauth_merge():
     return _finish(user, pending.get("next") or "", pending["sub"])
 
 
-# Linking from the account settings
+# Sign-in methods in the account settings: connecting, disconnecting, confirming a change
+
+METHODS_PAGE = "users.security"
+
+
+def _methods_page():
+    return redirect(url_for(METHODS_PAGE) + "#sign-in-methods")
+
+
+def _own_password(user: dict[str, Any]) -> str | None:
+    """Why the account's own confirmation (password, or a recent confirmation with the portal) fails (a
+    translation key with its values), or None when it passed; refused on someone's behalf."""
+    from ..users.service import ProfileError, password_ok
+
+    try:
+        return None if password_ok(user, request.form.get("password")) else "auth.error.current_password_wrong"
+    except ProfileError as error:
+        return error.key
+
+
+def disconnect_refusal(user: dict[str, Any]) -> str | None:
+    """Why *user* may not disconnect the portal (a translation key), or None: an account without a password, or
+    a wiki that takes hosting accounts only, would have no way back in."""
+    if not reauth.has_password(user):
+        return "auth.methods.disconnect.needs_password"
+    if not signin_modes.password_allowed():
+        return "auth.methods.disconnect.platform_only"
+    return None
 
 
 @bp.route("/settings/link-platform-account", methods=["GET", "POST"])
 @_configured
 def platform_oauth_link_account():
+    """Connect the signed-in account to a hosting account: its password (proof the session's holder knows
+    it), then the portal's sign-in. The old page of its own now lives in Sign-in methods."""
     user = auth.current_user()
-    if auth.is_impersonating():
-        abort(403)
-    link = oauth.link_of(user["id"])
-    if link is None:
-        # The link form below is answered with a redirect to the portal.
-        allow_form_action(oauth.config()["authorize_url"])
     if request.method == "GET":
-        return render_template("auth/oauth_link.html", link=link)
-    if link is not None:
+        return _methods_page()
+    if auth.on_behalf():
+        auth.flash_t("auth.acting.error.refused", "error")
+        return _methods_page()
+    if oauth.link_of(user["id"]) is not None:
         auth.flash_t("auth.oauth.already_linked", "info")
-        return redirect(url_for("auth.platform_oauth_link_account"))
-    try:
-        signin.verify(user["username"], request.form.get("password") or "")
-    except signin.Refused as refusal:
-        auth.flash_t(refusal.key, "error", **refusal.values)
-        return render_template("auth/oauth_link.html", link=None), refusal.status
-    return redirect(oauth.authorize_url("link", user_id=user["id"]))
+        return _methods_page()
+    problem = _own_password(user)
+    if problem:
+        auth.flash_t(problem, "error")
+        return _methods_page()
+    return redirect(oauth.authorize_url("link", user_id=user["id"], bound={"sid": auth.current_session_id()}))
 
 
 @bp.get("/platform-oauth/link-callback")
@@ -349,32 +397,86 @@ def platform_oauth_link_callback():
     state = request.args.get("state", "")
     try:
         entry = oauth.consume_state(state, "link")
-        if entry.get("uid") != user["id"] or auth.is_impersonating():
+        if entry.get("uid") != user["id"] or entry.get("sid", auth.current_session_id()) != auth.current_session_id():
             raise oauth.OAuthError("auth.oauth.error.expired")
+        if auth.on_behalf():
+            raise oauth.OAuthError("auth.acting.error.refused")
         if request.args.get("error"):
             raise oauth.OAuthError("auth.oauth.error.cancelled")
-        account_id, portal_username = oauth.fetch_profile(
-            oauth.exchange_code(request.args.get("code", ""), state, "link"))
-        oauth.link(user, account_id, portal_username)
+        identity = oauth.fetch_identity(oauth.exchange_code(request.args.get("code", ""), state, "link"))
+        if identity.act is not None:
+            raise oauth.OAuthError("auth.acting.error.no_account")
+        if oauth.linked_user(identity.sub) is not None:
+            raise oauth.OAuthError("auth.methods.connect.taken")
+        oauth.link(user, identity.sub, identity.username)
     except oauth.OAuthError as error:
-        return _fail(error, "auth.platform_oauth_link_account")
+        return _fail(error, METHODS_PAGE)
+    record("user.platform_linked", target_type="user", target_id=user["id"],
+           details={"username": user["username"], "via": "settings"})
     auth.flash_t("auth.oauth.linked", "success")
-    return redirect(url_for("auth.platform_oauth_link_account"))
+    return _methods_page()
 
 
 @bp.post("/settings/unlink-platform-account")
 @_configured
 def platform_oauth_unlink_account():
     user = auth.current_user()
-    if auth.is_impersonating():
-        abort(403)
+    if auth.on_behalf():
+        auth.flash_t("auth.acting.error.refused", "error")
+        return _methods_page()
+    problem = disconnect_refusal(user) or _own_password(user)
+    if problem:
+        auth.flash_t(problem, "error")
+        return _methods_page()
     try:
-        signin.verify(user["username"], request.form.get("password") or "")
         oauth.unlink(user)
-    except signin.Refused as refusal:
-        auth.flash_t(refusal.key, "error", **refusal.values)
-        return redirect(url_for("auth.platform_oauth_link_account"))
     except oauth.OAuthError as error:
-        return _fail(error, "auth.platform_oauth_link_account")
+        return _fail(error, METHODS_PAGE)
+    record("user.platform_unlinked", target_type="user", target_id=user["id"],
+           details={"username": user["username"], "via": "settings"})
     auth.flash_t("auth.oauth.unlinked", "success")
-    return redirect(url_for("auth.platform_oauth_link_account"))
+    return _methods_page()
+
+
+@bp.post("/settings/confirm-with-hosting")
+@auth.exempt("account_steps")
+@_configured
+def platform_oauth_confirm():
+    """Start confirming a sensitive change with the portal (see :mod:`.reauth`); ``confirm_next`` is the page
+    to come back to."""
+    user = auth.current_user()
+    back = safe_next(url_for(METHODS_PAGE), request.form.get("confirm_next"))
+    if not reauth.hosting_available(user):
+        auth.flash_t("auth.acting.error.refused" if auth.on_behalf() else "auth.reverify.error.not_linked", "error")
+        return redirect(back)
+    return redirect(oauth.authorize_url("confirm", next_url=back, user_id=user["id"], fresh=True,
+                                        bound={"sid": auth.current_session_id(), "started": time.time()}))
+
+
+@bp.get("/platform-oauth/confirm-callback")
+@auth.exempt("account_steps")
+@_configured
+def platform_oauth_confirm_callback():
+    user = auth.current_user()
+    state = request.args.get("state", "")
+    back = url_for(METHODS_PAGE)
+    try:
+        entry = oauth.consume_state(state, "confirm")
+        back = safe_next(back, entry.get("next"))
+        if entry.get("uid") != user["id"] or entry.get("sid") != auth.current_session_id():
+            raise oauth.OAuthError("auth.oauth.error.expired")
+        if request.args.get("error"):
+            raise oauth.OAuthError("auth.oauth.error.cancelled")
+        identity = oauth.fetch_identity(oauth.exchange_code(request.args.get("code", ""), state, "confirm"))
+        problem = reauth.accepted(entry, identity, user)
+        if problem:
+            raise oauth.OAuthError(problem)
+    except oauth.OAuthError as error:
+        oauth.log.warning("Confirming with the portal failed: %s", error)
+        auth.flash_t(error.key, "error")
+        return redirect(back)
+    auth.mark_reverified()
+    record("user.reverified", target_type="user", target_id=user["id"],
+           details={"username": user["username"], "via": "hosting"})
+    auth.flash_t("auth.reverify.done", "success", minutes=auth.REVERIFY_SECONDS // 60)
+    return redirect(back)

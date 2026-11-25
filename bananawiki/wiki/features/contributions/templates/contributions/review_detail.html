@@ -62,7 +62,8 @@
         <label for="f-quota">{{ t('contributions.quota.set_for', user=contribution.username) }}</label>
         <div class="input-group input-group--compact">
           <input id="f-quota" name="quota" inputmode="numeric" size="10" aria-describedby="f-quota-hint">
-          <button class="btn" type="submit">{{ t('common.save') }}</button>
+          {#- A one-off action on a review page (no settings form here), named for what it does. -#}
+          <button class="btn" type="submit">{{ t('contributions.quota.set_button') }}</button>
         </div>
         <p class="hint" id="f-quota-hint">{{ t('contributions.quota.set_hint') }}</p>
       </div>

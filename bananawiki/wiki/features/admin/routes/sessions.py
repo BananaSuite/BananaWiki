@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from flask import redirect, render_template, request, url_for
 
-from bananawiki.core.numbers import ascii_int
-
 from .... import auth, settings
 from ...audit.service import record
 from .. import service
@@ -20,20 +18,14 @@ def sessions():
         "admin/sessions.html",
         sessions=service.sessions_for(actor(), service.active_sessions()),
         current_session_id=auth.current_session_id(),
-        auto_logout_enabled=bool(settings.get("auto_logout_enabled")),
-        auto_logout_hour=int(settings.get("auto_logout_hour", 0) or 0),
     )
 
 
 @bp.post("/admin/sessions/auto-logout")
 @auth.admin_required
 def auto_logout_settings():
-    hour = request.form.get("auto_logout_hour", "0")
-    hour_value = ascii_int(hour) or 0
-    values = {
-        "auto_logout_enabled": 1 if request.form.get("auto_logout_enabled") == "1" else 0,
-        "auto_logout_hour": min(max(hour_value, 0), 23),
-    }
+    """The daily sign-out is set on Site settings → Security; a form saved from an older page still works."""
+    values = {"auto_logout_enabled": 1 if request.form.get("auto_logout_enabled") == "1" else 0}  # at midnight
     settings.update(values)
     record("sessions.auto_logout_changed", details=values)
     auth.flash_t("common.saved", "success")

@@ -126,7 +126,7 @@ def test_suspended_administrators_get_nothing(app, admin, make_user, db, outbox)
 
 
 def test_digest_waits_for_the_interval(app, admin, make_user, outbox):
-    set_settings(app, attention_email_mode="digest", attention_email_interval_minutes=60)
+    set_settings(app, attention_email_mode="digest")  # hourly
     pending(make_user, "first")
     assert run(app) == 1
     pending(make_user, "second")
@@ -139,17 +139,17 @@ def test_digest_waits_for_the_interval(app, admin, make_user, outbox):
 
 
 def test_daily_summary_once_a_day_after_the_hour(app, admin, make_user, outbox):
-    set_settings(app, attention_email_mode="daily", attention_email_daily_hour=9, timezone="UTC")
+    set_settings(app, attention_email_mode="daily", timezone="UTC")  # at 08:00
     pending(make_user, "waiting")
-    assert run(app, NOON.replace(hour=8)) == 0
-    assert run(app, NOON.replace(hour=9, minute=1)) == 1
+    assert run(app, NOON.replace(hour=7)) == 0
+    assert run(app, NOON.replace(hour=8, minute=1)) == 1
     assert "daily summary" in outbox[-1].subject
     assert run(app, NOON.replace(hour=18)) == 0
-    assert run(app, NOON.replace(hour=9) + timedelta(days=1)) == 1
+    assert run(app, NOON.replace(hour=8) + timedelta(days=1)) == 1
 
 
 def test_daily_summary_skips_empty_days(app, admin, outbox):
-    set_settings(app, attention_email_mode="daily", attention_email_daily_hour=0)
+    set_settings(app, attention_email_mode="daily")
     assert run(app) == 0 and outbox == []
 
 

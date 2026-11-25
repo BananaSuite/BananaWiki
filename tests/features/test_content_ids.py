@@ -29,7 +29,7 @@ from bananawiki.wiki import markdown
 from bananawiki.wiki.db import connection_scope
 
 from .pages_support import make_page
-from .test_kanban import as_client, board_id_from, columns, new_ticket, set_settings
+from .test_kanban import as_client, board_id_from, columns, new_ticket
 
 WIKI = Path(__file__).parents[2] / "bananawiki" / "wiki"
 SCRIPTS = sorted(path for path in WIKI.rglob("*.js") if "vendor" not in path.parts)
@@ -123,7 +123,6 @@ def test_builder_headings_never_take_an_id_the_interface_links_to(app):
 
 def _trapped_board(app, admin_client, db, make_user, login, description=BOARD_TRAP):
     """A private board: a writer (write share) wrote the description, a viewer (view share) a comment."""
-    set_settings(db, kanban_access="all")
     board = board_id_from(admin_client.post("/kanban/create", data={"title": "Roadmap", "description": "Plans"}))
     admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "private"})
     writer_user, viewer_user = make_user("board_writer"), make_user("board_viewer")

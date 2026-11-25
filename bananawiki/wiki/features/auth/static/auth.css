@@ -68,3 +68,12 @@
 fieldset[data-feature-list]:disabled { opacity: .7; }
 /* "Recommended" ignores the feature list: it is shown only for "Choose the features". */
 form[data-onboarding]:has(input[name="mode"][value="easy"]:checked) [data-feature-list] { display: none; }
+
+/* The first sign-in with BananaWiki Hosting: two choices, each in its own framed box, "or" between them. */
+.connect-choice { padding: 1rem; border: 1px solid color-mix(in srgb, var(--bw-text) 18%, transparent);
+  border-radius: var(--radius); }
+.connect-choice h2 { font-size: 1.15rem; margin: 0; }
+.connect-choice .btn[type="submit"] { width: 100%; justify-content: center; }
+.connect-or { display: flex; align-items: center; gap: .75rem; margin: 0; color: var(--muted);
+  font-size: var(--font-size-ui); text-transform: lowercase; }
+.connect-or::before, .connect-or::after { content: ""; flex: 1; border-top: 1px solid color-mix(in srgb, var(--bw-text) 15%, transparent); }

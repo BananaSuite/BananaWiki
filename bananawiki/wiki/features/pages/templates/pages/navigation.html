@@ -10,7 +10,6 @@
   </div>
 </header>
 {% set manage_order = current_user and has_role('editor') and has_permission('category.reorder') %}
-{% if manage_order %}<p class="hint">{{ t('pages.order.hint') }}</p>{% endif %}
 {% if nav.categories or nav.uncategorized.count %}
 {% include "pages/_tree.html" %}
 {% else %}

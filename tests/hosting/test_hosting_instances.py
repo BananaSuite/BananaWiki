@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -63,6 +64,20 @@ def test_create_validates_name_use_case_and_compliance(web, make_account, login,
     login(web, owner)
     assert _create(web, extra.pop("subdomain", "valid-name"), **extra).status_code == 400
     assert query("SELECT COUNT(*) AS n FROM instances", one=True)["n"] == 0
+
+
+def test_the_use_case_length_is_counted_without_the_spaces_at_its_ends(web, make_account, login, query):
+    """The browser's minlength counts spaces: the form checks the trimmed text too, as the server does."""
+    login(web, make_account())
+    page = web.get("/instances/create").get_data(as_text=True)
+    field = page[page.index('id="f-use"'):]
+    field = field[:field.index(">")]
+    assert 'data-min-trimmed="20"' in field and "not counting spaces at the start and end" in field
+    padded = "  " + "x" * 18 + " " * 10
+    assert _create(web, "valid-name", declared_use_case=padded).status_code == 400
+    assert query("SELECT COUNT(*) AS n FROM instances", one=True)["n"] == 0
+    script = (Path(__file__).parents[2] / "bananawiki/hosting/static/js/hosting.js").read_text(encoding="utf-8")
+    assert "data-min-trimmed" in script and "setCustomValidity" in script
 
 
 def test_an_apex_name_cannot_take_a_hosting_wikis_address(ctx, make_account, make_wiki):

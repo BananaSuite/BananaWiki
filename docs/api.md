@@ -17,16 +17,14 @@ scripts.
 ## Switching it on
 
 The API is the **REST API** feature (plugin id `api_service`, off by
-default). An administrator enables it under **Admin → Plugins**, then opens
-**Admin → REST API** (`/admin/api-service`) and ticks *Enable the REST API*
-(`site_settings.api_service_enabled`). While the feature is off every
-`/api/v1` URL answers 404; while the switch is off they answer 503.
+default). An administrator switches it on under **Admin → Plugins**: that is
+its only switch (`api_service_enabled`, a second one before version 24, is
+retired). While the feature is off every `/api/v1` URL answers 404.
 
-The same page sets the per-minute request limits for members
-(`api_service_rate_limit`, default 60) and administrators
-(`api_service_admin_rate_limit`, default 120), and the number of tokens an
-account may hold (`api_service_max_tokens_per_user`, default 5). Values are
-clamped to 1–10000 and 1–100. Every call made with a valid token counts
+Members may make 60 calls a minute and administrators 120, and an account
+holds at most 5 tokens; the server's operator changes these with
+`BW_API_RATE_LIMIT`, `BW_API_ADMIN_RATE_LIMIT` and
+`BW_API_MAX_TOKENS_PER_USER` (see [configuration](configuration.md)). Every call made with a valid token counts
 against the limit, also calls refused for the token's scope, the account or
 a switched-off feature.
 
@@ -293,9 +291,16 @@ feature keeps (`kept`), lose the category.
 
 The board rules are the web interface's: a board the caller cannot see is
 404 with everything on it, a board they can see but not change 403; viewers
-may comment; visibility and deletion belong to the creator and
-administrators; creating boards needs `kanban.create` and global write
-access, and each account creates at most 10 boards a minute, counted together
+may comment. The permissions decide the rest (see
+[permissions](permissions.md#the-same-verbs-for-pages-boards-and-canvases)):
+changing needs an edit share, `kanban.edit_own` (creator) or
+`kanban.edit_all`; visibility belongs to the creator with `kanban.share_own`
+and administrators (`is_owner` in the board); deleting and archiving to the
+creator with `kanban.delete_own`, holders of `kanban.delete_all` and
+administrators (`can_delete`). `visibility` is `private` (people and roles it
+is shared with), `members` or `public`; before version 23 there was `shared`,
+which meant what `private` means now. Creating boards needs `kanban.create`,
+and each account creates at most 10 boards a minute, counted together
 with the web interface's (past that, 429 `rate_limited` with `Retry-After: 60`).
 Ticket titles accept the board shorthand (`@user`, `+label`,
 `!high`, `due:tomorrow`, `color:red`) for fields the request does not set.
@@ -318,10 +323,10 @@ ticket keeps its column and fields but is left out of the board, its
 filters and "my tickets"; it can still be read, changed, commented on and
 deleted, but moving it answers 409 `ticket_archived`. Restoring puts it at
 the end of its column. Tickets and boards carry `archived_at` (`null` while
-active). Only the board's owner (its creator or an administrator) archives
-and restores a board; an archived board is read-only for everyone (writes
-and comments answer 403 `board_forbidden`), while the owner can still
-change its visibility, delete it, and restore it.
+active). Whoever may delete a board archives and restores it; an archived
+board is read-only for everyone (writes and comments answer 403
+`board_forbidden`), while its creator and administrators can still change its
+visibility, and whoever may delete it can delete or restore it.
 
 **Filters.** `GET /kanban/boards/<id>` accepts the board page's filter
 parameters: `q` (every word in the title, `#id`, `+label` or `@username`),
@@ -337,11 +342,11 @@ accepts the same except `who`. Invalid values answer 400 `invalid_filter`.
 | `GET /canvas` | canvases the caller can open |
 | `POST /canvas` | `{title, description?, data?}` (`data`: `{nodes, edges, viewport?}`) → 201 |
 | `GET /canvas/<slug>` | `canvas` (with `version`) and its document `data`, `ETag: "v<version>"` |
-| `PUT /canvas/<slug>` | `{title?, description?, visibility?}` (visibility: creator and administrators) |
+| `PUT /canvas/<slug>` | `{title?, description?, visibility?}` (`private`, `members` or `public`; visibility: the creator with `canvas.share_own`, administrators) |
 | `PUT /canvas/<slug>/document` | replace the document `{data, expected_version?}`, `If-Match` supported |
 | `POST /canvas/<slug>/ops` | apply up to 500 editor operations (`upsert_node`, `delete_node`, `upsert_edge`, …) atomically |
 | `GET /canvas/<slug>/history` | saved versions |
-| `DELETE /canvas/<slug>` | creator and administrators |
+| `DELETE /canvas/<slug>` | the creator with `canvas.delete_own`, holders of `canvas.delete_all`, administrators |
 
 A canvas the caller cannot see is 404, one they may only view 403 for
 changes. Wiki-page nodes pointing at pages the caller cannot read come back
@@ -385,7 +390,7 @@ by themselves, another administrator only by an owner or a superuser (403
 `cannot_change_own_role`) or suspends or deletes themselves; the owner role
 cannot be given; the last administrator cannot be demoted, suspended or
 deleted. Role changes and suspensions go through the same code as the admin
-pages: a new role drops a custom role and individual permissions and is
+pages: a new role drops a custom role and the person's own permission changes and is
 recorded in the role history, `suspended: true` is a permanent suspension
 without a reason, both are recorded and sent to webhooks
 (`user.role_changed`, `user.suspended`). Setting a password signs the account
@@ -396,6 +401,23 @@ so a token alone cannot take over its account. Wrong current passwords count
 against the account page's limit (10 in 15 minutes, shared with it): then
 429 `too_many_attempts`. No call creates an owner or a
 superuser.
+
+### Requests for edit access (`users`, administrators)
+
+`GET /access-requests?status=` lists the [requests for edit
+access](permissions.md#asking-for-edit-access), newest first (`status`:
+`pending`, the default, `approved`, `declined` or `all`; paginated).
+`POST /access-requests/<id>/approve` and `POST /access-requests/<id>/decline`
+decide one, exactly as **Admin → People → Access requests** does: approving
+gives the person what the request asks for and nothing else, answers it in
+`granted` (`permissions`, `write_categories`), tells the person and is
+recorded in the audit log. A request already decided answers 409
+`already_decided`, an unknown one 404 `access_request_not_found`; the
+[hierarchy of administrators](permissions.md#roles) applies as for the other
+account changes (403 `protected_account`). Each entry has `id`, `user_id`,
+`username`, `scope` (`wiki` or `category`), `category_id`, `category_name`,
+`page_slug` (the page it was asked from), `message`, `status`, `created_at`,
+`decided_by` and `decided_at`.
 
 ## Settings (`settings`, administrators)
 
@@ -469,7 +491,7 @@ Ticket descriptions, comment bodies and canvas content are never sent. For
 a **private** board or canvas only ids and `visibility` are sent: the board
 title, its tickets' titles and a canvas's title and slug are `null`, so a
 receiver learns that something changed but not what it is called. Boards
-and canvases that are shared or public carry their names. `canvas.updated`
+and canvases visible to members or the public carry their names. `canvas.updated`
 is sent at most once per save.
 
 Each delivery is a `POST` with a JSON body

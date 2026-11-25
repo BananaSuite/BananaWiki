@@ -6,7 +6,8 @@
 {% block content %}{% if is_admin %}{{ super() }}{% else %}{{ self.review_body() }}{% endif %}{% endblock %}
 {% block admin_content %}{{ self.review_body() }}{% endblock %}
 {% block review_body %}
-<header class="page-header"><h1>{{ t('contributions.review_title') }}</h1></header>
+<header class="page-header{% if is_admin_view %} page-header--save{% endif %}"><h1>{{ t('contributions.review_title') }}</h1>
+  {%- if is_admin_view %}{{ forms.page_save('contribution-settings-form') }}{% endif %}</header>
 <div class="section-stack">
 <section class="card">
   {% if contributions %}
@@ -53,14 +54,13 @@
 
 <section class="card">
   <h2>{{ t('contributions.settings_title') }}</h2>
-  <form method="post" action="{{ url_for('contributions.save_settings') }}" class="form">
+  <form method="post" action="{{ url_for('contributions.save_settings') }}" class="form" id="contribution-settings-form">
     {{ forms.csrf() }}
     <div class="form-grid">
     {% for name, minimum, maximum in number_settings %}
       {{ forms.field(name, t('contributions.setting.' ~ name), value=settings_values[name], type='number', required=true, hint=t('contributions.setting.' ~ name ~ '_hint', ''), attrs={'min': minimum, 'max': maximum}) }}
     {% endfor %}
     </div>
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>
 {% endif %}

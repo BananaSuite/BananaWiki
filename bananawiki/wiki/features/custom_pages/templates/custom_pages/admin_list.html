@@ -2,10 +2,11 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('custom_pages.admin.title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header">
+<header class="page-header page-header--save">
   <h1>{{ t('custom_pages.admin.title') }}</h1>
   <div class="page-header__actions">
-    <a class="btn btn--primary" href="{{ url_for('custom_pages.admin_create') }}">{{ t('custom_pages.admin.create') }}</a>
+    <a class="btn" href="{{ url_for('custom_pages.admin_create') }}">{{ t('custom_pages.admin.create') }}</a>
+    <button class="btn btn--primary" type="submit" form="custom-pages-settings-form">{{ t('common.save') }}</button>
   </div>
 </header>
 <div class="alert alert--warning"><div class="alert__body">{{ t('custom_pages.admin.public_notice') if public_allowed else t('custom_pages.admin.members_notice') }}</div></div>
@@ -49,10 +50,9 @@
 
 <section class="card" aria-labelledby="cp-settings">
   <div class="card__header"><h2 id="cp-settings">{{ t('custom_pages.admin.settings') }}</h2></div>
-  <form method="post" action="{{ url_for('custom_pages.admin_settings') }}" class="form">
+  <form method="post" action="{{ url_for('custom_pages.admin_settings') }}" class="form" id="custom-pages-settings-form">
     {{ forms.csrf() }}
     {{ forms.field('custom_pages_max_video_size_mb', t('custom_pages.field.max_video_mb'), max_video_mb, type='number', attrs={'min': 1, 'max': 10240, 'class': 'input--short', 'inputmode': 'numeric'}) }}
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>
 

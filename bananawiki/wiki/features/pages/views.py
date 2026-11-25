@@ -142,7 +142,7 @@ def management_context(category_row: dict[str, Any]) -> dict[str, Any]:
             "sequential": access.can_manage_category("category.manage_sequential", category_id, user),
             "delete": access.can_manage_category("category.delete", category_id, user),
             "create": access.can_manage_category("category.create", category_id, user),
-            "delete_pages": bool(user) and auth.has_permission("page.delete", user),
+            "delete_pages": bool(user) and auth.has_permission("page.delete_all", user),
             "top_level": access.can_manage_category("category.reorder", None, user),
         },
     }

@@ -14,7 +14,7 @@
     <option value="hosting">{{ t('hosting.create.mode_hosting') }}</option><option value="apex"{% if form.get('domain_mode') == 'apex' %} selected{% endif %}>{{ t('hosting.create.mode_apex') }}</option></select></div>
   {% endif %}
   {{ ui.textarea('declared_use_case', t('hosting.create.use_case'), form.get('declared_use_case', ''),
-      hint=t('hosting.create.use_case_hint'), required=true, attrs={'minlength': 20, 'maxlength': 2000, 'rows': 3}, id='f-use') }}
+      hint=t('hosting.create.use_case_hint'), required=true, attrs={'minlength': 20, 'data-min-trimmed': 20, 'data-min-message': t('hosting.form.min_chars', count=20), 'maxlength': 2000, 'rows': 3}, id='f-use') }}
   {{ ui.check('easy_wiki', t('hosting.create.easy_wiki'), checked=form.get('easy_wiki') == '1', hint=t('hosting.create.easy_wiki_hint')) }}
   {#- Open again after a refusal about these fields, also when they were filled without the box. -#}
   <details{% if form.get('set_admin_credentials') == '1' or form.get('admin_username', '').strip() or form.get('admin_password') or form.get('admin_confirm_password') %} open{% endif %}><summary>{{ t('hosting.create.custom_credentials') }}</summary>

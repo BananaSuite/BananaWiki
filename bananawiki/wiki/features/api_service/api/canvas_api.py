@@ -39,11 +39,15 @@ def _layout(slug: str, need: str = "view") -> tuple[dict[str, Any], str]:
         raise ApiError(403, "canvas_forbidden")
     if need == "own" and not access.is_owner(caller(), layout):
         raise ApiError(403, "canvas_forbidden")
+    if need == "delete" and not access.can_delete(caller(), layout):
+        raise ApiError(403, "canvas_forbidden")
     return layout, level
 
 
 def _payload(layout: dict[str, Any], level: str | None) -> dict[str, Any]:
-    return serialize.canvas(layout, level=level, is_owner=access.is_owner(caller(), layout))
+    user = caller()
+    return serialize.canvas(layout, level=level, is_owner=access.is_owner(user, layout),
+                            can_delete=access.can_delete(user, layout))
 
 
 def _session() -> str:
@@ -116,7 +120,7 @@ def create_canvas():
     description = text(data.get("description"), "description", maximum=service.MAX_DESCRIPTION)
     document = _document_data(data["data"]) if data.get("data") is not None else None
     layout = _run(service.create, title, description, user["id"], data=document, message="created")
-    return _answer(layout, "edit", 201)
+    return _answer(layout, access.level(user, layout), 201)
 
 
 @bp.get("/canvas/<slug>")
@@ -207,6 +211,6 @@ def canvas_history(slug: str):
 @bp.delete("/canvas/<slug>")
 @requires("canvas", write=True, feature=FEATURE)
 def delete_canvas(slug: str):
-    layout, _level = _layout(slug, "own")
+    layout, _level = _layout(slug, "delete")
     service.delete(layout, actor_id=caller()["id"])
     return ok(deleted=True, slug=layout["slug"])

@@ -8,9 +8,18 @@
   {% else %}
   <form class="form" method="post" action="{{ url_for('bm_mode.account_switch', user_id=target.id) }}">
     {{ forms.csrf() }}
-    {{ forms.checkbox('bm_mode', t('bm_mode.user.switch', username=target.username), checked=on) }}
-    {{ forms.select('bm_self', t('bm_mode.user.rule'), [('', t('bm_mode.user.rule_wiki_yes') if wiki_rule else t('bm_mode.user.rule_wiki_no')), ('allow', t('bm_mode.user.rule_allow')), ('deny', t('bm_mode.user.rule_deny'))], selected=rule, id='bm-self') }}
-    <div class="btn-row"><button type="submit" class="btn">{{ t('common.save') }}</button></div>
+    {#- Applies on change (Admin -> Users -> one account has no Save); the button is for browsers without scripts. -#}
+    <label class="check"><input type="checkbox" name="bm_mode" value="1"{% if on %} checked{% endif %} data-autosubmit>
+      <span>{{ t('bm_mode.user.switch', username=target.username) }}</span></label>
+    <div class="field">
+      <label for="bm-self">{{ t('bm_mode.user.rule') }}</label>
+      <select class="select" id="bm-self" name="bm_self" data-autosubmit>
+        {% for value, text in [('', t('bm_mode.user.rule_wiki_yes') if wiki_rule else t('bm_mode.user.rule_wiki_no')), ('allow', t('bm_mode.user.rule_allow')), ('deny', t('bm_mode.user.rule_deny'))] %}
+        <option value="{{ value }}"{% if value == (rule or '') %} selected{% endif %}>{{ text }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <noscript><div class="btn-row"><button type="submit" class="btn">{{ t('common.save') }}</button></div></noscript>
   </form>
   {% endif %}
 </section>

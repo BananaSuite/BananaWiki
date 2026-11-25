@@ -132,8 +132,8 @@ def test_rw3_3_a_rolled_back_savepoint_keeps_its_files_when_the_outer_transactio
                 raise RuntimeError("savepoint rolled back")
         except RuntimeError:
             pass
-        wiki_db.execute("UPDATE site_settings SET chat_max_message_length = 4000 WHERE id = 1")
-    assert db.scalar("SELECT chat_max_message_length FROM site_settings WHERE id = 1") == 4000
+        wiki_db.execute("UPDATE site_settings SET chat_attachments_per_day_limit = 40 WHERE id = 1")
+    assert db.scalar("SELECT chat_attachments_per_day_limit FROM site_settings WHERE id = 1") == 40
     assert db.scalar("SELECT COUNT(*) FROM users WHERE id = ?", (one["id"],)) == 1
     assert sorted(_on_disk(app, files)) == sorted(files)
 

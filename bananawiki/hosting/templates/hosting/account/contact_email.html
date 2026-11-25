@@ -12,8 +12,7 @@
 {% if not required %}
 <form method="post" class="cluster">{{ ui.csrf() }}<input type="hidden" name="action" value="skip">
   {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
-  <button class="btn btn--small" type="submit">{{ t('hosting.contact_email.skip') }}</button>
-  <span class="small muted">{{ t('hosting.contact_email.skip_hint') }}</span></form>
+  <button class="btn btn--small" type="submit">{{ t('hosting.contact_email.skip') }}</button></form>
 {% endif %}
 {% include "hosting/_contact.html" %}</div>
 {% endblock %}

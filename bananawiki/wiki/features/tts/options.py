@@ -57,7 +57,8 @@ class TtsConfig:
     piper_noise_scale: float | None = None
     piper_noise_w_scale: float | None = None
     piper_voice_map: Mapping[str, str] = field(default_factory=dict)
-    performance_mode: str = ""  # empty: the site setting decides
+    performance_mode: str = ""  # empty: "auto"
+    languages: tuple[str, ...] = ()  # empty: the wiki's interface languages
     ffmpeg: str = ""
     gpu_url: str = ""
     gpu_token: str = field(default="", repr=False)
@@ -164,6 +165,7 @@ def load(cfg, environ: Mapping[str, str] | None = None) -> TtsConfig:
         piper_noise_w_scale=env.float("BW_TTS_PIPER_NOISE_W_SCALE", None),
         piper_voice_map=parse_voice_map(env.str("BW_TTS_PIPER_VOICE_MAP")),
         performance_mode=performance if performance in PERFORMANCE_MODES else "",
+        languages=text.parse_enabled_languages(env.str("BW_TTS_LANGUAGES")) if env.str("BW_TTS_LANGUAGES") else (),
         ffmpeg=env.str("BW_TTS_FFMPEG"),
         gpu_url=env.str("BW_TTS_REMOTE_GPU_URL").rstrip("/"),
         gpu_token=env.str("BW_TTS_REMOTE_GPU_AUTH_TOKEN"),
@@ -204,11 +206,18 @@ def auto_generate() -> bool:
 
 
 def enabled_languages() -> tuple[str, ...]:
-    return text.parse_enabled_languages(settings.get("tts_enabled_languages"))
+    """The languages pages are read in: ``BW_TTS_LANGUAGES``, else the wiki's interface languages (Admin →
+    Languages) that have a voice. A per-language list of its own was retired in version 23."""
+    if config().languages:
+        return config().languages
+    from ... import i18n
+
+    return text.parse_enabled_languages(list(i18n.enabled_languages()))
 
 
 def performance_mode() -> str:
-    mode = config().performance_mode or str(settings.get("tts_performance_mode") or "auto").lower()
+    """``BW_TTS_PERFORMANCE_MODE``, else "auto" (the voice quality is no longer a site setting)."""
+    mode = config().performance_mode or "auto"
     return mode if mode in PERFORMANCE_MODES else "auto"
 
 
@@ -229,7 +238,6 @@ def gpu_settings() -> tuple[str, str, int]:
         if not token:
             url = url or str(settings.get("tts_gpu_url") or "").strip().rstrip("/")
             token = str(settings.get("tts_gpu_auth_token") or "").strip()
-        timeout = timeout or gpu_timeout(settings.get("tts_gpu_timeout"))
     return url, token, timeout or GPU_DEFAULT_TIMEOUT
 
 
@@ -240,6 +248,6 @@ def backend_name() -> str:
     if cfg.gpu_managed_by_host:
         url, token, _ = gpu_settings()
         return "remote-gpu" if url and token else "piper"
-    if settings.get("tts_gpu_enabled") and gpu_settings()[0]:
+    if gpu_settings()[0]:  # a saved address is the switch (version 23 cleared the ones switched off)
         return "remote-gpu"
     return "piper"

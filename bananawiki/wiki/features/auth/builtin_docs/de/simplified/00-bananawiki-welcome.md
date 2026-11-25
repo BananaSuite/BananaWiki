@@ -20,8 +20,8 @@ BananaWiki hält die Seiten deiner Gruppe an einem Ort auf deinem eigenen Server
 
 | Rolle | Hauptaufgabe |
 |---|---|
-| **Benutzer** | lesen und die erlaubten Werkzeuge nutzen |
-| **Redakteur** | Seiten erstellen und aktualisieren |
+| **Benutzer** | lesen; Seiten, Boards und Canvas erstellen und an den eigenen arbeiten |
+| **Redakteur** | außerdem Seiten, Boards und Canvas aller bearbeiten |
 | **Administrator** | Wiki, Konten, Einstellungen und Plugins verwalten |
 | **Eigentümer** | Administrator, den andere Administratoren nicht ändern können |
 

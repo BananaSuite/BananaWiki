@@ -20,9 +20,7 @@ bp = feature_blueprint("contributions", "contributions", __name__, template_fold
 
 NUMBER_SETTINGS = (
     ("default_contribution_quota", 1, quota.MAX_QUOTA),
-    ("contribution_quota_auto_approve_max", 0, quota.MAX_QUOTA),
-    ("quota_request_cooldown_hours", 0, 24 * 365),
-)
+)  # the wait between quota requests is shared with reservations: Site settings → Content
 
 
 def flash_error(exc: ContributionError) -> None:

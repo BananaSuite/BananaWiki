@@ -19,16 +19,14 @@
 {% if admin_view or has_role('admin') %}
 <section class="card">
   <h2>{{ t('page_governance.quota.set_title') }}</h2>
-  <form method="post" class="form">
+  {#- Saved by the Save in the page header (admin_quota.html, quota.html). -#}
+  <form method="post" class="form" id="quota-form">
     {{ forms.csrf() }}
     <input type="hidden" name="action" value="set_quota">
     {{ forms.field('new_quota', t('page_governance.quota.new_quota'), value=(current_quota if current_quota != -1 else ''), type='number', attrs={'min': 1, 'max': 100000, 'class': 'input--short', 'inputmode': 'numeric'}) }}
     {{ forms.checkbox('unlimited', t('page_governance.quota.unlimited'), checked=current_quota == -1) }}
-    <div class="btn-row">
-      <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button>
-      {#- Submits the reset form below: both actions share one row. -#}
-      {% if admin_view %}<button class="btn" type="submit" form="quota-reset-form">{{ t('page_governance.quota.reset') }}</button>{% endif %}
-    </div>
+    {#- Submits the reset form below. -#}
+    {% if admin_view %}<div class="btn-row"><button class="btn" type="submit" form="quota-reset-form">{{ t('page_governance.quota.reset') }}</button></div>{% endif %}
   </form>
   {% if admin_view %}
   <form id="quota-reset-form" method="post" action="{{ request.path }}" hidden>

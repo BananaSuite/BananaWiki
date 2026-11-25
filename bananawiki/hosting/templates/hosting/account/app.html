@@ -3,7 +3,8 @@
 {% block title %}{{ app.name }}{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('account.account') }}#more">{{ t('hosting.nav.account') }}</a> / <a href="{{ url_for('account.developer_apps') }}">{{ t('hosting.apps.title') }}</a></nav>
-<h1>{{ app.name }} <span class="badge {{ {'approved': 'badge--success', 'pending': 'badge--warning', 'denied': 'badge--danger', 'suspended': 'badge--danger'}.get(app.status, '') }}">{{ t('hosting.apps.status.' ~ app.status) }}</span></h1>
+<header class="page-header page-header--save"><h1>{{ app.name }} <span class="badge {{ {'approved': 'badge--success', 'pending': 'badge--warning', 'denied': 'badge--danger', 'suspended': 'badge--danger'}.get(app.status, '') }}">{{ t('hosting.apps.status.' ~ app.status) }}</span></h1>
+  {% if can_act %}<div class="page-header__actions"><button class="btn btn--primary" type="submit" form="app-settings-form">{{ t('common.save') }}</button></div>{% endif %}</header>
 <p class="hint hint--block">{{ t('hosting.apps.status_help.' ~ app.status) }}</p>
 {% if app.review_note %}<p class="small"><span class="muted">{{ t('hosting.apps.review_note') }}:</span> {{ app.review_note }}</p>{% endif %}
 
@@ -32,13 +33,12 @@
 
 <section class="card">
   <h2>{{ t('hosting.apps.settings') }}</h2>
-  <form method="post" action="{{ url_for('account.edit_developer_app', app_id=app.id) }}" class="form">{{ ui.csrf() }}
+  <form method="post" action="{{ url_for('account.edit_developer_app', app_id=app.id) }}" class="form" id="app-settings-form">{{ ui.csrf() }}
     {{ ui.field('name', t('hosting.apps.name'), value=app.name, required=true, attrs={'maxlength': 60, 'minlength': 2}) }}
-    {{ ui.textarea('description', t('hosting.apps.description'), value=app.description, hint=t('hosting.apps.description_hint'), attrs={'maxlength': 300, 'rows': 2}) }}
+    {{ ui.textarea('description', t('hosting.apps.description'), value=app.description, attrs={'maxlength': 300, 'rows': 2}) }}
     {{ ui.field('homepage_url', t('hosting.apps.homepage'), value=app.homepage_url, type='url', attrs={'maxlength': 512, 'placeholder': 'https://'}) }}
     {{ ui.textarea('redirect_uris', t('hosting.apps.redirect_uris'), value=app.redirect_uris|join('\n'), required=true, hint=t('hosting.apps.redirect_uris_hint'), attrs={'rows': 3, 'class': 'mono', 'spellcheck': 'false'}) }}
     {% if app.status == 'approved' %}<p class="hint hint--block">{{ t('hosting.apps.edit_review_hint') }}</p>{% endif %}
-    {% if can_act %}<p><button class="btn btn--primary" type="submit">{{ t('hosting.apps.save') }}</button></p>{% endif %}
   </form>
 </section>
 

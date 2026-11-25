@@ -68,16 +68,7 @@
 
 <section class="card">
   <h2>{{ t('audit.retention.title') }}</h2>
-  {% if can_change_retention %}
-  <form method="post" action="{{ url_for('audit.retention') }}" class="form">
-    {{ forms.csrf() }}
-    {{ forms.field('audit_log_retention_days', t('audit.retention.days'), retention_days, type='number',
-                   hint=t('audit.retention.hint'), attrs={'min': bounds[0], 'max': bounds[1], 'required': 'required'}) }}
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
-  </form>
-  {% else %}
   <p>{{ t('audit.retention.current_forever') if retention_days <= 0 else t('audit.retention.current', days=retention_days) }}</p>
-  <p class="hint">{{ t('audit.retention.owner_only') }}</p>
-  {% endif %}
+  <p class="hint">{{ t('audit.retention.fixed') }}</p>
 </section>
 {% endblock %}

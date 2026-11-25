@@ -109,6 +109,20 @@ def test_open_signup_and_expiry(client, db, no_bots):
     assert db.scalar("SELECT approval_status FROM users WHERE username = 'newbie'") == "approved"
 
 
+def test_an_invite_keeps_its_role_under_open_signup(client, db, admin, no_bots):
+    db.execute("UPDATE site_settings SET open_signup = 1")
+    _invite(db, admin, assigned_role="editor")
+    assert 'name="invite_code"' in client.get("/signup").get_data(as_text=True)  # offered, not required
+    assert _signup(client, "invited", invite="ABCD-1234").status_code == 302
+    assert db.one("SELECT role, invite_code FROM users WHERE username = 'invited'") == {
+        "role": "editor", "invite_code": "ABCD-1234"}
+    assert db.scalar("SELECT use_count FROM invite_codes") == 1
+    # Used up: a mistyped or spent code is refused rather than quietly ignored.
+    assert _signup(client, "late", invite="ABCD-1234").status_code == 400
+    assert _signup(client, "plain").status_code == 302
+    assert db.scalar("SELECT role FROM users WHERE username = 'plain'") == "user"
+
+
 def test_approval_required_creates_pending_account_that_cannot_use_the_wiki(client, db, login, no_bots):
     db.execute("UPDATE site_settings SET open_signup = 1, approval_required = 1")
     assert _signup(client).status_code == 302

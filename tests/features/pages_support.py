@@ -9,6 +9,8 @@ from bananawiki.wiki import registry
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.pages import categories, service
 
+from .access_support import only_stored_permissions
+
 
 def in_app(app, fn: Callable[[], Any]) -> Any:
     """Run *fn* inside a request context with its own connection (as the system)."""
@@ -45,6 +47,7 @@ def restrict(db, user: dict[str, Any], *, keys: set[str] | None = None, read: li
         for category_id in ids or []:
             db.execute("INSERT INTO user_allowed_categories (user_id, category_id, access_type) VALUES (?, ?, ?)",
                        (user["id"], category_id, access_type))
+    only_stored_permissions(db, user["id"])
 
 
 def add_interceptor(app, point: str, handler: Callable[..., Any], feature_id: str = "test_probe") -> None:

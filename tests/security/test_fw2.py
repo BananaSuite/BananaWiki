@@ -93,7 +93,8 @@ def test_fw2_1_large_upload_bodies_need_the_administrators_own_session(csrf_port
     other, other_token = _signed_in(csrf_portal, user)
     assert other.post(f"/admin/instances/import/chunk/{upload_id}", data=_chunk(other_token),
                       content_type="multipart/form-data").status_code == 413
-    assert client.post(f"/admin/accounts/{user['id']}/impersonate", data={"csrf_token": token}).status_code == 302
+    assert client.post(f"/admin/accounts/{user['id']}/impersonate", data={"csrf_token": token, "current_password": PASSWORD,
+                                                                       "reason": "Support request"}).status_code == 302
     assert client.get("/admin").status_code == 403  # now acting as the regular account
     assert client.post(f"/admin/instances/import/chunk/{upload_id}", data=_chunk(token),
                        content_type="multipart/form-data").status_code == 413

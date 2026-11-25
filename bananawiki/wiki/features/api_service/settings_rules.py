@@ -27,13 +27,11 @@ from flask import current_app
 from ....core.timeutil import now_sql, parse, to_sql
 from ... import auth, i18n, registry, settings
 from ...templating import FAVICON_PRESETS, from_local_input
-from . import tokens, webhooks
 
 SECRET_KEYS = frozenset(settings.ENCRYPTED_COLUMNS | {
     "feedback_bot_token", "feedback_telegram_userids", "telegram_sync_token", "telegram_sync_userids",
 })
 _HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
-_TTS_CODE = re.compile(r"^[a-z]{2,3}(-[A-Za-z]{2})?$")
 
 
 class Invalid(ValueError):
@@ -153,25 +151,6 @@ def _future_datetime(value: Any) -> str | None:
     return stored
 
 
-def _intro_roles(value: Any) -> str:
-    if isinstance(value, str):
-        value = [part.strip() for part in value.split(",") if part.strip()]
-    if not isinstance(value, list) or not all(isinstance(role, str) for role in value):
-        raise Invalid("roles")
-    if set(value) - {"user", "editor", "admin"}:
-        raise Invalid("roles")
-    return ",".join([role for role in ("user", "editor", "admin") if role in value] or ["user", "editor", "admin"])
-
-
-def _tts_languages(value: Any) -> str:
-    if isinstance(value, str):
-        value = [code.strip() for code in value.split(",") if code.strip()]
-    if (not isinstance(value, list) or not value or len(value) > 100
-            or not all(isinstance(code, str) and _TTS_CODE.match(code) for code in value)):
-        raise Invalid("languages")
-    return ",".join(dict.fromkeys(value))
-
-
 def _forbidden_by(flag: str, reason: str) -> Callable[[Any], str | None]:
     def policy(value: Any) -> str | None:
         return reason if value and getattr(current_app.config["BW"], flag) else None
@@ -197,7 +176,6 @@ FLAG = Rule(_flag)
 RULES: dict[str, Rule] = {
     "site_name": Rule(_site_name),
     "interface_language": Rule(_interface_language),
-    "interface_language_fallback": Rule(_choice(*i18n.BUILTIN_LANGUAGES)),
     "timezone": Rule(_time_zone),
     "default_theme_mode": Rule(_choice("dark", "light")),
     **{name: Rule(_color) for name in (
@@ -205,90 +183,45 @@ RULES: dict[str, Rule] = {
         "light_primary_color", "light_secondary_color", "light_accent_color", "light_text_color",
         "light_sidebar_color", "light_bg_color",
     )},
-    "favicon_enabled": FLAG,
     "favicon_type": Rule(_choice(*FAVICON_PRESETS)),
     "maintenance_mode": FLAG,
     "maintenance_message": Rule(_text(1000)),
     "session_limit_enabled": FLAG,
     "suspended_account_deletion_enabled": FLAG,
     "auto_logout_enabled": FLAG,
-    "auto_logout_hour": Rule(_whole(0, 23)),
     "pdf_export_enabled": FLAG,
-    "markdown_export_enabled": FLAG,
     "contributor_leaderboard_enabled": FLAG,
     "sidebar_apps_order": Rule(_text(500)),
     "new_user_intro_enabled": FLAG,
-    "onboarding_replay_disabled": FLAG,
-    "intro_role_switching_enabled": FLAG,
-    "intro_role_switching_roles": Rule(_intro_roles),
     "public_mode": Rule(_flag, policy=_forbidden_by("forbid_public_mode", "platform_forbids")),
     "public_mode_until": Rule(_future_datetime),
     "public_mode_message": Rule(_text(1000)),
-    "public_mode_show_message": FLAG,
     "page_builder_enabled": Rule(_flag, policy=_forbidden_by("forbid_page_builder", "platform_forbids")),
-    "page_builder_access": Rule(_choice("admin", "editor", "user")),
     "open_signup": FLAG,
     "open_signup_until": Rule(_future_datetime),
     "approval_required": FLAG,
-    "approval_denied_timeout_hours": Rule(_whole(1, 8760)),
-    "approval_pending_timeout_hours": Rule(_whole(0, 8760)),
     "bot_protection_enabled": FLAG,
     "draft_expiration_hours": Rule(_whole(0, 8760)),
     "login_app_selector": FLAG,
-    "api_service_enabled": FLAG,
-    "api_service_rate_limit": Rule(_whole(*tokens.RATE_LIMIT_BOUNDS)),
-    "api_service_admin_rate_limit": Rule(_whole(*tokens.RATE_LIMIT_BOUNDS)),
-    "api_service_max_tokens_per_user": Rule(_whole(*tokens.MAX_TOKENS_BOUNDS)),
-    "api_service_webhook_max_failures": Rule(_whole(*webhooks.MAX_FAILURES_BOUNDS)),
     "upload_mode": Rule(_choice("whitelist", "blacklist", "allow_all"), ("attachments",)),
-    "upload_whitelist": Rule(_text(2000), ("attachments",)),
     "upload_blacklist": Rule(_text(2000), ("attachments",)),
     "upload_max_size_mb": Rule(_whole(1, 2048), ("attachments",), policy=_platform_owned),
     "page_protection_enabled": Rule(_flag, ("page_governance",), policy=_protection_switch_off),
     "page_reservations_enabled": Rule(_flag, ("page_governance",)),
     "page_reservation_duration_hours": Rule(_whole(1, 8760), ("page_governance",)),
-    "page_reservation_cooldown_hours": Rule(_whole(0, 8760), ("page_governance",)),
     "default_reserved_pages_quota": Rule(_whole(1, 1000), ("page_governance",)),
-    "reservation_quota_auto_approve_max": Rule(_whole(0, 1000000), ("page_governance",)),
     "contribution_approval_enabled": Rule(_flag, ("page_governance",)),
     "default_contribution_quota": Rule(_whole(1, 1000), ("page_governance",)),
-    "contribution_quota_auto_approve_max": Rule(_whole(0, 1000000), ("page_governance",)),
-    "quota_request_cooldown_hours": Rule(_whole(0, 8760), ("page_governance",)),
     "tts_page_panel_enabled": Rule(_flag, ("tts",)),
     "tts_public_access_enabled": Rule(_flag, ("tts",)),
     "tts_auto_generate_enabled": Rule(_flag, ("tts",), policy=_forbidden_by("managed_tts_disabled",
                                                                             "platform_forbids")),
-    "tts_performance_mode": Rule(_choice("auto", "balanced", "fast"), ("tts",)),
-    "tts_enabled_languages": Rule(_tts_languages, ("tts",)),
-    "chat_max_message_length": Rule(_whole(100, 50000), ("chat",)),
-    "chat_attachments_enabled": Rule(_flag, ("chat",)),
     "chat_max_attachment_size_mb": Rule(_whole(1, 100), ("chat",)),
     "chat_attachments_per_day_limit": Rule(_whole(1, 1000), ("chat",)),
-    "chat_dm_enabled": Rule(_flag, ("chat",)),
-    "chat_allow_dm_creation": Rule(_flag, ("chat",)),
-    "chat_dm_message_retention_days": Rule(_whole(1, 3650), ("chat",)),
-    "chat_dm_attachment_retention_days": Rule(_whole(1, 3650), ("chat",)),
-    "chat_dm_auto_clear_messages": Rule(_flag, ("chat",)),
-    "chat_dm_auto_clear_attachments": Rule(_flag, ("chat",)),
-    "chat_group_enabled": Rule(_flag, ("chat",)),
-    "chat_allow_group_creation": Rule(_flag, ("chat",)),
-    "chat_group_message_retention_days": Rule(_whole(1, 3650), ("chat",)),
-    "chat_group_attachment_retention_days": Rule(_whole(1, 3650), ("chat",)),
-    "chat_group_auto_clear_messages": Rule(_flag, ("chat",)),
-    "chat_group_auto_clear_attachments": Rule(_flag, ("chat",)),
-    "chat_cleanup_enabled": Rule(_flag, ("chat",)),
-    "chat_cleanup_frequency_days": Rule(_whole(1, 365), ("chat",)),
-    "chat_cleanup_hour": Rule(_whole(0, 23), ("chat",)),
-    "profile_contribution_chart_enabled": Rule(_flag, ("user_profiles",)),
-    "profile_group_badges_enabled": Rule(_flag, ("user_profiles", "chat")),
-    "kanban_access": Rule(_choice("admin", "editor", "all"), ("kanban",)),
-    "kanban_write_access": Rule(_choice("admin", "editor", "all"), ("kanban",)),
-    "kanban_public_access_enabled": Rule(_flag, ("kanban",)),
-    "kanban_open_access": Rule(_flag, ("kanban",)),
-    "canvas_access": Rule(_choice("admin", "editor", "all"), ("canvas",)),
-    "canvas_write_access": Rule(_choice("admin", "editor", "all"), ("canvas",)),
-    "canvas_public_access_enabled": Rule(_flag, ("canvas",)),
-    "canvas_open_access": Rule(_flag, ("canvas",)),
+    "chat_dm_message_retention_days": Rule(_whole(0, 36500), ("chat",)),
+    "chat_dm_attachment_retention_days": Rule(_whole(0, 36500), ("chat",)),
+    "chat_group_message_retention_days": Rule(_whole(0, 36500), ("chat",)),
+    "chat_group_attachment_retention_days": Rule(_whole(0, 36500), ("chat",)),
     "assessment_points_badge_enabled": Rule(_flag, ("assessments",)),
     "custom_pages_max_video_size_mb": Rule(_whole(1, 2048), ("custom_pages",)),
     "docs_bypass_deletion_slowdown": Rule(_flag, ("deletion_slowdown",)),
@@ -300,17 +233,13 @@ READ_ONLY_REASONS = {
     "list_order_version": "internal", "chat_cleanup_split_configured": "internal",
     "docs_category_id": "internal", "last_backup_sent_at": "internal",
     "platform_upload_blacklist": "platform",
-    "tts_gpu_enabled": "remote_gpu", "tts_gpu_url": "remote_gpu", "tts_gpu_timeout": "remote_gpu",
+    "tts_gpu_url": "remote_gpu",
     "favicon_custom": "own_page", "favicon_order": "own_page", "interface_languages_json": "own_page",
-    "chat_auto_clear_messages": "legacy_chat", "chat_auto_clear_attachments": "legacy_chat",
-    "chat_message_retention_days": "legacy_chat", "chat_attachment_retention_days": "legacy_chat",
 }
-
-_CHAT_SPLIT = frozenset(key for key in RULES if key.startswith(("chat_dm_", "chat_group_", "chat_cleanup_")))
 
 
 def is_retired(key: str) -> bool:
-    return key in settings.RETIRED_COLUMNS or key.startswith(settings.RETIRED_COLUMN_PREFIXES)
+    return key in settings.RETIRED_COLUMNS or key in settings.FIXED or key.startswith(settings.RETIRED_COLUMN_PREFIXES)
 
 
 def readable(current: dict[str, Any]) -> dict[str, Any]:
@@ -372,6 +301,4 @@ def with_companions(updates: dict[str, Any]) -> dict[str, Any]:
         result["public_mode_until"] = None
     if result.get("open_signup") == 0:
         result["open_signup_until"] = None
-    if _CHAT_SPLIT.intersection(result):
-        result["chat_cleanup_split_configured"] = 1
     return result

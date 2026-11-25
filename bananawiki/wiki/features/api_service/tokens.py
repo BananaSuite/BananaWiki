@@ -104,10 +104,16 @@ def _bounded(value: Any, default: int, bounds: tuple[int, int]) -> int:
 
 
 def service_settings() -> dict[str, Any]:
-    """The API switches, clamped so a bad stored value cannot break the API."""
+    """The API's settings, clamped so a bad stored value cannot break the API.
+
+    ``enabled`` is the feature's one switch (Admin → Plugins); ``api_service_enabled``,
+    a second on/off switch before version 23, is retired.
+    """
+    from ...registry import is_enabled
+
     s = settings.load()
     return {
-        "enabled": bool(s.get("api_service_enabled")),
+        "enabled": is_enabled("api_service"),
         "rate_limit": _bounded(s.get("api_service_rate_limit"), 60, RATE_LIMIT_BOUNDS),
         "admin_rate_limit": _bounded(s.get("api_service_admin_rate_limit"), 120, RATE_LIMIT_BOUNDS),
         "max_tokens_per_user": _bounded(s.get("api_service_max_tokens_per_user"), 5, MAX_TOKENS_BOUNDS),

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% import "macros/forms.html" as forms with context %}
+{% import "macros/sharing.html" as sharing with context %}
 {% block title %}{{ board.title }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ asset_url('kanban.css', blueprint='kanban') }}">{% endblock %}
 {% block main_class %}main--wide{% endblock %}
@@ -25,7 +26,9 @@
         {% if can_export %}<a role="menuitem" href="{{ url_for('kanban.export', board_id=board.id, format='json') }}" data-bm-hide="kanban.simple_board">{{ t('kanban.board.export_json') }}</a>{% endif %}
         <button type="button" role="menuitem" data-print>{{ t('kanban.board.print') }}</button>
         {% if is_owner %}
-        <button type="button" role="menuitem" data-dialog-open="kanban-share-dialog">{{ t('kanban.board.sharing') }}</button>
+        <button type="button" role="menuitem" data-dialog-open="kanban-share-dialog">{{ t('sharing.title') }}</button>
+        {% endif %}
+        {% if can_delete %}
         {% if board.archived_at %}
         {{ forms.post_button(url_for('kanban.restore', board_id=board.id), t('kanban.board.restore'), '') }}
         {% else %}
@@ -39,13 +42,16 @@
   </div>
   <div class="page-header__meta">
     <span>{{ t('kanban.board.owner', username=board.creator_username or t('common.unknown_user')) }}</span>
-    <span>{{ t('kanban.visibility.' ~ (board.visibility or 'public')) }}</span>
+    <span>{{ t('sharing.visibility.' ~ (board.visibility or 'private')) }}</span>
+    {% if current_user and not can_write and not board.archived_at %}
+    <span>{{ t('kanban.board.view_only_own') if board.created_by == current_user.id else t('kanban.board.view_only', owner=board.creator_username or t('common.unknown_user')) }}</span>
+    {% endif %}
   </div>
 </header>
 {% if board.description %}<div class="kanban-description prose" id="kanban-board-description">{{ board.description|markdown }}</div>{% endif %}
 
 {% if board.archived_at %}
-<div class="alert alert--info" role="status" id="kanban-archived-notice">{{ t('kanban.board.archived_notice', date=board.archived_at|date) }}{% if is_owner %} {{ t('kanban.board.archived_notice_owner') }}{% endif %}</div>
+<div class="alert alert--info" role="status" id="kanban-archived-notice">{{ t('kanban.board.archived_notice', date=board.archived_at|date) }}{% if can_delete %} {{ t('kanban.board.archived_notice_owner') }}{% endif %}</div>
 {% endif %}
 <div class="alert alert--warning" id="kanban-offline" hidden role="status">{{ t('kanban.board.offline') }}</div>
 <p class="visually-hidden" id="kanban-live" aria-live="polite"></p>
@@ -64,7 +70,6 @@
 
 <section class="card kanban-archive no-print" id="kanban-archive" hidden aria-labelledby="kanban-archive-title">
   <div class="card__header"><h2 id="kanban-archive-title">{{ t('kanban.board.archived_tickets') }}</h2></div>
-  <p class="hint">{{ t('kanban.board.archived_hint') }}</p>
   <ul class="kanban-archive__list" id="kanban-archive-list"></ul>
 </section>
 
@@ -256,7 +261,7 @@
 </dialog>
 {% endif %}
 
-{% if is_owner %}
+{% if can_delete %}
 <dialog id="kanban-delete-dialog" aria-labelledby="kanban-delete-title">
   <h2 id="kanban-delete-title">{{ t('kanban.board.delete_title') }}</h2>
   <p>{{ t('kanban.board.delete_body', title=board.title) }}</p>
@@ -266,81 +271,19 @@
     <button type="submit" class="btn btn--danger">{{ t('kanban.board.delete') }}</button>
   </form>
 </dialog>
+{% endif %}
 
+{% if is_owner %}
 <dialog id="kanban-share-dialog" class="kanban-share-dialog" aria-labelledby="kanban-share-title">
-  <h2 id="kanban-share-title">{{ t('kanban.board.sharing') }}</h2>
+  <h2 id="kanban-share-title">{{ t('sharing.title') }}</h2>
   {% set share_url = url_for('kanban.share', board_id=board.id) %}
   <form class="form" method="post" action="{{ share_url }}">
     {{ forms.csrf() }}<input type="hidden" name="action" value="set_visibility">
-    {{ forms.select('visibility', t('kanban.field.visibility'), [('public', t('kanban.visibility.public')), ('shared', t('kanban.visibility.shared')), ('private', t('kanban.visibility.private'))], board.visibility or 'public', t('kanban.share.visibility_hint')) }}
+    {{ sharing.visibility_field(board.visibility, 'kanban-visibility') }}
     <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('common.save') }}</button></div>
   </form>
-
-  <h3>{{ t('kanban.share.current') }}</h3>
-  {% if shares %}
-  <div class="table-wrap"><table class="table">
-    <thead><tr><th>{{ t('kanban.share.target') }}</th><th>{{ t('kanban.share.access') }}</th><th><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
-    <tbody>
-    {% for share in shares %}
-    <tr>
-      <td>{% if share.share_type == 'user' %}{{ share.username or t('common.unknown_user') }}{% else %}{{ t('kanban.role.' ~ share.target) }}{% endif %}</td>
-      <td>{{ t('kanban.share.level.' ~ share.access_level) }}</td>
-      <td class="actions">
-        {% if share.share_type == 'user' %}
-        {{ forms.post_button(share_url, t('kanban.share.remove'), 'btn btn--small', hidden={'action': 'remove_user', 'user_id': share.target}) }}
-        {% else %}
-        {{ forms.post_button(share_url, t('kanban.share.remove'), 'btn btn--small', hidden={'action': 'remove_role', 'role': share.target}) }}
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-    </tbody>
-  </table></div>
-  {% else %}
-  <p class="muted">{{ t('kanban.share.none') }}</p>
-  {% endif %}
-
-  {% set levels = [('view', t('kanban.share.level.view')), ('write', t('kanban.share.level.write'))] %}
-  <h3>{{ t('kanban.share.add_user') }}</h3>
-  <form class="form-grid" method="post" action="{{ share_url }}">
-    {{ forms.csrf() }}<input type="hidden" name="action" value="add_user">
-    <div class="field"><label for="kanban-share-user">{{ t('kanban.share.user') }}</label>
-      {% if share_users %}<select id="kanban-share-user" name="user_id" required>
-        <option value="">{{ t('kanban.share.choose_user') }}</option>
-        {% for u in share_users %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
-      </select>
-      {% else %}<input class="input" id="kanban-share-user" name="username" required autocomplete="off" aria-describedby="kanban-share-user-hint">
-      <p class="hint" id="kanban-share-user-hint">{{ t('kanban.share.username_hint') }}</p>{% endif %}</div>
-    {{ forms.select('access_level', t('kanban.share.access'), levels, id='kanban-share-user-access') }}
-    <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('kanban.share.add') }}</button></div>
-  </form>
-
-  {% if shareable_roles %}
-  <h3>{{ t('kanban.share.add_role') }}</h3>
-  <form class="form-grid" method="post" action="{{ share_url }}">
-    {{ forms.csrf() }}<input type="hidden" name="action" value="add_role">
-    <div class="field"><label for="kanban-share-role">{{ t('kanban.share.role') }}</label>
-      <select id="kanban-share-role" name="role">
-        {% for role in shareable_roles %}<option value="{{ role }}">{{ t('kanban.role.' ~ role) }}</option>{% endfor %}
-      </select>
-      <p class="hint">{{ t('kanban.share.role_hint') }}</p></div>
-    {{ forms.select('access_level', t('kanban.share.access'), levels, id='kanban-share-role-access') }}
-    <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('kanban.share.add') }}</button></div>
-  </form>
-  {% endif %}
-
-  <h3>{{ t('kanban.share.transfer') }}</h3>
-  <form class="form" method="post" action="{{ share_url }}" data-confirm="{{ t('kanban.share.transfer_confirm') }}">
-    {{ forms.csrf() }}<input type="hidden" name="action" value="transfer_ownership">
-    <div class="field"><label for="kanban-transfer-user">{{ t('kanban.share.new_owner') }}</label>
-      {% if share_users %}<select id="kanban-transfer-user" name="user_id" required>
-        <option value="">{{ t('kanban.share.choose_user') }}</option>
-        {% for u in share_users if u.id != board.created_by %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
-      </select>
-      {% else %}<input class="input" id="kanban-transfer-user" name="username" required autocomplete="off" aria-describedby="kanban-transfer-user-hint">
-      <p class="hint" id="kanban-transfer-user-hint">{{ t('kanban.share.username_hint') }}</p>{% endif %}</div>
-    <div class="btn-row"><button type="submit" class="btn btn--small btn--danger">{{ t('kanban.share.transfer') }}</button></div>
-  </form>
+  {{ sharing.shares(share_url, shares, share_users, shareable_roles, 'kanban') }}
+  {{ sharing.transfer(share_url, board.creator_username, board.created_by, share_users, 'kanban') }}
   <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.close') }}</button></div>
 </dialog>
 {% endif %}

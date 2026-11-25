@@ -1,7 +1,6 @@
 {% import "chat/_macros.html" as ui with context %}
 <section class="card" id="blocked-people" aria-labelledby="blocked-people-heading">
   <h2 id="blocked-people-heading">{{ t('chat.blocks.settings_heading') }}</h2>
-  <p class="hint">{{ t('chat.blocks.settings_help') }}</p>
   <form class="inline-fields" method="post" action="{{ url_for('chat.block_user') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="next" value="{{ request.path }}#blocked-people">

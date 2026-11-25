@@ -8,6 +8,32 @@
 </div>
 {%- endmacro %}
 
+{#- The account's password before a sensitive change, or "Confirm with BananaWiki Hosting" (a fresh sign-in at the
+    portal, see features/auth/reauth.py): accounts without a password see only that, and once confirmed nothing is
+    asked for a few minutes. The hosting button posts the form's CSRF token to the confirmation, never the change.
+    `back` is where the confirmation returns (default: this page). -#}
+{% macro current_password(id, name='password', label=none, hint='', back=none) -%}
+{%- set r = reauth_state() -%}
+{%- if r.refused %}
+<div class="alert alert--warning"><div class="alert__body">{{ t('auth.acting.refused_here') }}</div></div>
+{%- elif r.verified %}
+<input type="hidden" name="{{ name }}" value="">
+<p class="cluster small"><span class="badge badge--success">{{ t('auth.reverify.confirmed_badge') }}</span><span class="muted">{{ t('auth.reverify.confirmed', minutes=r.minutes) }}</span></p>
+{%- elif r.password %}
+{{ password(id, label or t('auth.field.current_password'), name=name, hint=hint) }}
+{%- if r.hosting %}
+<p class="cluster small reauth-alternative"><span class="muted">{{ t('auth.reverify.or') }}</span>
+  <button class="btn btn--small" type="submit" formaction="{{ url_for('auth.platform_oauth_confirm') }}" formmethod="post" formnovalidate data-no-confirm name="confirm_next" value="{{ back or request.full_path }}">{{ t('auth.reverify.button') }}</button></p>
+{%- endif %}
+{%- elif r.hosting %}
+<input type="hidden" name="{{ name }}" value="">
+<div class="field"><p class="hint">{{ t('auth.reverify.needed_no_password') }}</p>
+  <p><button class="btn btn--small" type="submit" formaction="{{ url_for('auth.platform_oauth_confirm') }}" formmethod="post" formnovalidate data-no-confirm name="confirm_next" value="{{ back or request.full_path }}">{{ t('auth.reverify.button') }}</button></p></div>
+{%- else %}
+{{ password(id, label or t('auth.field.current_password'), name=name, hint=hint) }}
+{%- endif %}
+{%- endmacro %}
+
 {% macro avatar(url, username, cls='avatar') -%}
 {% if url %}<img class="{{ cls }}" src="{{ url }}" alt="" width="32" height="32">{% else %}<span class="{{ cls }}" aria-hidden="true">{{ username[:1]|upper }}</span>{% endif %}
 {%- endmacro %}

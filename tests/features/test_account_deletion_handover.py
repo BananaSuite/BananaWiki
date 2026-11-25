@@ -25,7 +25,7 @@ def _canvas(db, owner, slug, visibility):
 def leaver(app, db, make_user):
     admin = make_user("keeper", role="admin")
     member = make_user("leaver")
-    shared, shared_column = _board(db, member, "Shared plan", "shared")
+    shared, shared_column = _board(db, member, "Shared plan", "members")
     private, private_column = _board(db, member, "Private notes", "private")
     _, admin_column = _board(db, admin, "Admin board", "public")
     return {

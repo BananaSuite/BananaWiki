@@ -11,7 +11,7 @@
     {{ forms.checkbox('attention_emails', t('attention.settings.attention_emails'), user.attention_emails) }}
     {% endif %}
     {{ forms.checkbox('decision_emails', t('attention.settings.decision_emails'), user.decision_emails) }}
-    {#- The Notifications tab has the Save in its header; BM mode's short Account tab shows this one. -#}
-    <div class="form-save"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
+    {#- No button here: the page showing this section (Notifications, or BM mode's short Account tab) has the
+        Save in its header, for this form's id. -#}
   </form>
 </section>

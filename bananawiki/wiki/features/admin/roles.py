@@ -1,4 +1,9 @@
-"""Custom roles: named permission bundles with optional category restrictions.
+"""Roles: the defaults of the base roles, and custom roles (named permission bundles with optional
+category restrictions).
+
+The base roles ``user`` and ``editor`` start from the built-in defaults of the
+permission catalogue; administrators may change them for the whole wiki
+(``base_role_permissions`` keeps the differences, see :mod:`...permissions`).
 
 A custom role has a base role (``user`` or ``editor``) that limits which
 permissions it can hold. Its holders' ``users.role`` always equals the base
@@ -71,15 +76,49 @@ class RoleForm:
         if self.base_role not in BASE_ROLES:
             raise AccountError("admin.roles.error.invalid_base_role")
         self.keys = sorted(perms.sanitize(self.base_role, self.keys))
-        if self.base_role != "editor":
-            self.write_restricted, self.write_ids = False, []
-        elif self.write_restricted:
+        if self.write_restricted:
             # Write access implies read access.
             self.read_restricted = True
             self.read_ids = sorted(set(self.read_ids) | set(self.write_ids))
         if not self.read_restricted:
             self.read_ids = []
         return self
+
+
+def base_roles() -> list[dict[str, Any]]:
+    """The base roles with how many accounts use exactly their defaults and whether the wiki changed them."""
+    changed = set(db.column("SELECT DISTINCT role FROM base_role_permissions"))
+    return [{
+        "role": role,
+        "user_count": int(db.scalar("SELECT COUNT(*) FROM users WHERE role = ? AND custom_role_id IS NULL "
+                                    "AND NOT EXISTS (SELECT 1 FROM user_permissions p WHERE p.user_id = users.id) "
+                                    "AND NOT EXISTS (SELECT 1 FROM user_category_access a WHERE a.user_id = users.id "
+                                    "AND a.restricted = 1)",
+                                    (role,), default=0)),
+        "permission_count": len(perms.role_defaults(db, role)),
+        "changed": role in changed,
+    } for role in perms.BASE_ROLES]
+
+
+def save_base_role(role: str, keys: list[str], *, actor_id: str) -> None:
+    """Make *keys* the defaults of base *role* on this wiki."""
+    if role not in perms.BASE_ROLES:
+        raise AccountError("admin.roles.error.invalid_base_role")
+    changes = perms.changes_for(role, keys)
+    with db.transaction():
+        db.execute("DELETE FROM base_role_permissions WHERE role = ?", (role,))
+        db.executemany("INSERT INTO base_role_permissions (role, permission_key, granted) VALUES (?, ?, ?)",
+                       [(role, key, int(granted)) for key, granted in sorted(changes.items())])
+    record("role.defaults_changed", actor_id=actor_id, target_type="role", target_id=role,
+           details={"permissions": " ".join(sorted(perms.sanitize(role, keys)))})
+
+
+def reset_base_role(role: str, *, actor_id: str) -> None:
+    """Back to the built-in defaults of base *role*."""
+    if role not in perms.BASE_ROLES:
+        raise AccountError("admin.roles.error.invalid_base_role")
+    db.execute("DELETE FROM base_role_permissions WHERE role = ?", (role,))
+    record("role.defaults_reset", actor_id=actor_id, target_type="role", target_id=role, details={})
 
 
 def list_roles() -> list[dict[str, Any]]:

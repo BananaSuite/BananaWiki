@@ -19,6 +19,7 @@
   <p class="small muted">{{ t('hosting.oauth.shared') }}</p>
   {% if not remembered %}<p class="small muted">{{ t('hosting.oauth.remembered') }}</p>{% endif %}
   {% endif %}
+  {% if acting %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('hosting.oauth.acting', username=current_account.username, admin=real_account.username) }}</div></div>{% endif %}
   {# Asked on every sign-in, so nobody is signed in to a wiki or an app without seeing which account it gets. #}
   <form method="post">{{ ui.csrf() }}
     <div class="btn-row">
@@ -30,8 +31,8 @@
       <button class="btn" type="submit" name="action" value="deny">{{ t('hosting.oauth.deny') }}</button>
       {% endif %}
     </div>
-    <p class="small muted">{{ t('hosting.oauth.not_you', username=current_account.username) }}
-      <button class="btn btn--ghost btn--small" type="submit" name="action" value="switch">{{ t('hosting.oauth.switch') }}</button></p>
+    {% if not acting %}<p class="small muted">{{ t('hosting.oauth.not_you', username=current_account.username) }}
+      <button class="btn btn--ghost btn--small" type="submit" name="action" value="switch">{{ t('hosting.oauth.switch') }}</button></p>{% endif %}
   </form>
 </div>
 {% endblock %}

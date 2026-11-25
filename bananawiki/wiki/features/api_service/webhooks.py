@@ -112,20 +112,20 @@ def _user(user: dict[str, Any] | None) -> dict[str, Any]:
 
 def _named(visibility: str, **names: Any) -> dict[str, Any]:
     """Names only for what is not private; an unknown visibility counts as private."""
-    shown = visibility in ("public", "shared")
+    shown = visibility in ("public", "members")
     return {**{key: (value if shown else None) for key, value in names.items()}, "visibility": visibility}
 
 
 def _board(board: dict[str, Any] | None) -> dict[str, Any]:
     board = board or {}
-    return {"id": board.get("id"), **_named(board.get("visibility") or "public", title=board.get("title"))}
+    return {"id": board.get("id"), **_named(board.get("visibility") or "private", title=board.get("title"))}
 
 
 def _ticket(ticket: dict[str, Any] | None, board: dict[str, Any] | None) -> dict[str, Any]:
     ticket, board = ticket or {}, board or {}
     return {"id": ticket.get("id"), "board_id": ticket.get("board_id") or board.get("id"),
             "column_id": ticket.get("column_id"),
-            "title": _named(board.get("visibility") or "public", title=ticket.get("title"))["title"]}
+            "title": _named(board.get("visibility") or "private", title=ticket.get("title"))["title"]}
 
 
 def _canvas(canvas: dict[str, Any] | None) -> dict[str, Any]:

@@ -57,7 +57,7 @@ def events(app):
 
 @pytest.fixture
 def creators(db):
-    db.execute("UPDATE site_settings SET canvas_access = 'editor', canvas_write_access = 'editor' WHERE id = 1")
+    """Members and editors create canvases by default (``canvas.create``): nothing to set."""
 
 
 def ops(client, canvas, *items):
@@ -252,7 +252,7 @@ def test_history_restore_is_not_blocked_by_locks(app, editor, canvas, db):
 
 
 def test_viewers_cannot_touch_locks(app, canvas, make_user, login, client, db):
-    viewer = make_user("viewer1", role="editor")
+    viewer = make_user("viewer1")  # a member: editors hold canvas.edit_all
     db.execute("INSERT INTO canvas__permissions (layout_id, user_id, permission) VALUES (?, ?, 'view')",
                (canvas["id"], viewer["id"]))
     login(client, viewer)

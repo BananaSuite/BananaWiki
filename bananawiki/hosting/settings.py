@@ -18,9 +18,14 @@ from ..core import crypto
 from ..core.timeutil import now_sql
 from .db import db
 
-SIGNUP_MODES = ("open", "invite", "approval", "closed")
+# Who may sign up. Administrator approval is a separate switch (hosting_activation_required) that combines
+# with "open" and "invite"; the mode "approval" of 1.4-1.7 means "open" with that switch on (version 14).
+SIGNUP_MODES = ("open", "invite", "closed")
 # Whether an address is asked for: at sign-up (signup_email) and of accounts without one (existing_email).
 EMAIL_POLICIES = ("required", "optional", "off")
+# Not asked, as a new portal starts (version 9 derives it from 1.4's ask_email_new_signup, 0 by default). The
+# column's own DEFAULT ('optional', frozen in version 9) never applies: the settings row exists before it.
+DEFAULT_SIGNUP_EMAIL = "off"
 # The portal's easter eggs: key -> settings column (all on unless an administrator turns one off). "konami" is
 # the switch for every key-sequence egg (easter_egg_configs, see egg_config).
 EASTER_EGGS = {"shades": "easter_shades", "konami": "easter_konami", "peek": "easter_peek"}
@@ -52,7 +57,7 @@ WRITABLE = frozenset({
     "gdrive_retention_days", "gdrive_backup_time", "admin_mfa_required", "owner_renewal_enabled",
     "signup_email", "existing_email", "email_shared", "email_paused", "email_paused_at", "email_paused_held",
     "email_notices", "attention_email_sources", *EASTER_EGGS.values(), "easter_egg_configs",
-    "goto_chat_url", "goto_git_url",
+    "goto_chat_url", "goto_git_url", "admin_app_signin", "admin_act_minutes", "admin_act_notify",
 })
 
 
@@ -101,8 +106,19 @@ def signup_mode() -> str:
     return mode if mode in SIGNUP_MODES else "open"
 
 
+def parse_signup_mode(value: str) -> tuple[str, bool] | None:
+    """A sign-up mode as sent by a form, a script or the env: (mode, approval forced on), or None if unknown.
+
+    The old mode "approval" still works where a mode is given: it means "open" with approval on.
+    """
+    mode = (value or "").strip().lower()
+    if mode == "approval":
+        return "open", True
+    return (mode, False) if mode in SIGNUP_MODES else None
+
+
 def approval_required() -> bool:
-    return signup_mode() == "approval" or flag("hosting_activation_required")
+    return flag("hosting_activation_required")
 
 
 def grace_period_days() -> int:
@@ -141,9 +157,9 @@ def approval_notify_daily_hour() -> int:
 
 
 def signup_email() -> str:
-    """Whether the sign-up form asks for an address: ``required``, ``optional`` or ``off``."""
-    value = get("signup_email", "optional")
-    return value if value in EMAIL_POLICIES else "optional"
+    """Whether the sign-up form asks for an address: ``required``, ``optional`` or ``off`` (the default)."""
+    value = get("signup_email", DEFAULT_SIGNUP_EMAIL)
+    return value if value in EMAIL_POLICIES else DEFAULT_SIGNUP_EMAIL
 
 
 def existing_email() -> str:

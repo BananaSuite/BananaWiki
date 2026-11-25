@@ -10,5 +10,6 @@
   {% if cooldown %}<span class="small muted">{{ t('hosting.verify.wait', seconds=cooldown) }}</span>{% endif %}</form>
 {% else %}<p class="muted">{{ t('hosting.email.not_configured') }}</p>{% endif %}
 <p class="small verify-change"><a href="{{ url_for('account.account') }}#profile">{{ t('hosting.verify.change_address') }}</a></p>
+{% include "hosting/_signup_return.html" %}
 {% include "hosting/_contact.html" %}</div>
 {% endblock %}

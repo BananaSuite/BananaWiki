@@ -12,6 +12,8 @@ from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.assessments import service, slots
 from bananawiki.wiki.features.pages import service as pages
 
+from .access_support import only_stored_permissions
+
 
 @pytest.fixture
 def app(app_factory):
@@ -89,6 +91,7 @@ def test_manage_requires_permission_and_edit_rights(client, login, reader, page,
                (limited["id"],))
     db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, 'page.edit_all')", (limited["id"],))
     db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, 'page.view_all')", (limited["id"],))
+    only_stored_permissions(db, limited["id"])
     login(client, limited)
     assert client.get(f"/page/{page['slug']}/assessment/manage").status_code == 403
 

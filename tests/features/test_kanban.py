@@ -10,6 +10,8 @@ import pytest
 from bananawiki.wiki import registry
 from bananawiki.wiki.db import connection_scope
 
+from .access_support import only_stored_permissions
+
 
 def board_id_from(response) -> int:
     assert response.status_code == 302, response.data[:300]
@@ -18,7 +20,7 @@ def board_id_from(response) -> int:
 
 @pytest.fixture
 def board(admin_client):
-    """A public board owned by the administrator (three default columns)."""
+    """A board the administrator created (private, three default columns)."""
     return board_id_from(admin_client.post("/kanban/create", data={"title": "Roadmap", "description": "Plans"}))
 
 
@@ -43,97 +45,145 @@ def set_settings(db, **values):
         db.execute(f"UPDATE site_settings SET {name} = ? WHERE id = 1", (value,))
 
 
-# Global access
+def share(client, board_id, **data):
+    return client.post(f"/kanban/{board_id}/share", data=data)
 
 
-def test_default_access_is_admin_only(app, admin_client, board, make_user, login):
+def restrict(db, user, keys):
+    """Individual permissions for *user*: exactly *keys* (and what they imply)."""
+    from bananawiki.wiki import permissions
+
+    for key in permissions.sanitize(user["role"], keys):
+        db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)", (user["id"], key))
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
+               (user["id"],))
+    only_stored_permissions(db, user["id"])
+
+
+# Who sees and changes a board
+
+
+def test_new_boards_are_private_to_their_creator(app, admin_client, board, make_user, login):
     assert admin_client.get("/kanban").status_code == 200
     editor = as_client(app, login, make_user("eddie", role="editor"))
-    assert editor.get("/kanban").status_code == 403
+    assert editor.get("/kanban").status_code == 200  # members open the list (kanban.view)
     assert editor.get(f"/kanban/{board}").status_code == 404
+    assert b"Roadmap" not in editor.get("/kanban").data
 
 
-def test_access_setting_opens_public_boards(app, db, board, make_user, login):
-    set_settings(db, kanban_access="editor")
+def test_members_visibility_opens_a_board_to_every_member(app, admin_client, board, make_user, login):
     editor = as_client(app, login, make_user("eddie", role="editor"))
     user = as_client(app, login, make_user("usr"))
-    assert editor.get(f"/kanban/{board}").status_code == 200
-    assert b"Roadmap" in editor.get("/kanban").data
+    share(admin_client, board, action="set_visibility", visibility="members")
+    assert editor.get(f"/kanban/{board}").status_code == 200 and user.get(f"/kanban/{board}").status_code == 200
+    assert b"Roadmap" in user.get("/kanban").data
+    share(admin_client, board, action="set_visibility", visibility="private")
     assert user.get(f"/kanban/{board}").status_code == 404
-    set_settings(db, kanban_access="all")
-    assert user.get(f"/kanban/{board}").status_code == 200
 
 
-def test_view_only_access_cannot_write_or_create(app, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+def test_viewers_need_an_edit_share_or_edit_all_to_change_a_board(app, admin_client, db, board, make_user, login):
+    share(admin_client, board, action="set_visibility", visibility="members")
     user = as_client(app, login, make_user("usr"))
+    editor = as_client(app, login, make_user("eddie", role="editor"))
     column_id = columns(user, board)[0]["id"]
     assert user.post(f"/api/kanban/columns/{column_id}/tickets", json={"title": "x"}).status_code == 403
-    assert user.post("/kanban/create", data={"title": "Mine"}).status_code == 403
+    # Editors hold kanban.edit_all by default: they change every board they can open.
+    assert editor.post(f"/api/kanban/columns/{column_id}/tickets", json={"title": "x"}).status_code == 201
 
 
-def test_create_needs_write_access_and_permission(app, db, make_user, login):
-    set_settings(db, kanban_access="all", kanban_write_access="all")
-    editor = as_client(app, login, make_user("eddie", role="editor"))
-    assert editor.post("/kanban/create", data={"title": "E"}).status_code == 302
-    user = as_client(app, login, make_user("usr"))
-    # Plain users lack the kanban.create permission by default.
+def test_members_create_and_manage_their_own_boards(app, db, make_user, login):
+    alice_user = make_user("alice")
+    alice = as_client(app, login, alice_user)
+    mine = board_id_from(alice.post("/kanban/create", data={"title": "Mine"}))
+    assert new_ticket(alice, columns(alice, mine)[0]["id"])["title"] == "Task"
+    assert share(alice, mine, action="set_visibility", visibility="members").status_code == 302
+    assert db.scalar("SELECT visibility FROM kanban_boards WHERE id = ?", (mine,)) == "members"
+    assert alice.post(f"/kanban/{mine}/archive").status_code == 302
+    assert alice.post(f"/kanban/{mine}/delete").status_code == 302
+    assert db.scalar("SELECT COUNT(*) FROM kanban_boards WHERE id = ?", (mine,)) == 0
+
+
+def test_create_needs_the_create_permission(app, db, make_user, login):
+    user_row = make_user("usr")
+    restrict(db, user_row, {"kanban.view"})
+    user = as_client(app, login, user_row)
+    assert user.get("/kanban").status_code == 200
     assert user.post("/kanban/create", data={"title": "U"}).status_code == 403
 
 
+def test_own_verbs_can_be_taken_away(app, db, make_user, login):
+    owner_row = make_user("owner1")
+    owner = as_client(app, login, owner_row)
+    mine = board_id_from(owner.post("/kanban/create", data={"title": "Mine"}))
+    restrict(db, owner_row, {"kanban.view", "kanban.create"})  # no edit_own, delete_own, share_own
+    assert owner.get(f"/kanban/{mine}").status_code == 200
+    column_id = columns(owner, mine)[0]["id"]
+    assert owner.post(f"/api/kanban/columns/{column_id}/tickets", json={"title": "x"}).status_code == 403
+    assert share(owner, mine, action="set_visibility", visibility="members").status_code == 403
+    assert owner.post(f"/kanban/{mine}/delete").status_code == 403
+
+
+def test_delete_all_reaches_boards_one_can_open(app, admin_client, db, board, make_user, login):
+    editor_row = make_user("eddie", role="editor")
+    restrict(db, editor_row, {"kanban.view", "kanban.delete_all"})
+    editor = as_client(app, login, editor_row)
+    assert editor.post(f"/kanban/{board}/delete").status_code == 404  # private: not even visible
+    share(admin_client, board, action="set_visibility", visibility="members")
+    assert editor.post(f"/kanban/{board}/archive").status_code == 302
+    assert editor.post(f"/kanban/{board}/delete").status_code == 302
+
+
 def test_private_board_and_shares(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
     bob_user = make_user("bob")
     bob = as_client(app, login, bob_user)
     carol = as_client(app, login, make_user("carol"))
-    admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "private"})
     assert bob.get(f"/kanban/{board}").status_code == 404
-    admin_client.post(f"/kanban/{board}/share", data={"action": "add_user", "user_id": bob_user["id"],
-                                                        "access_level": "view"})
+    share(admin_client, board, action="add_user", user_id=bob_user["id"], access_level="view")
     assert bob.get(f"/kanban/{board}").status_code == 200
     assert carol.get(f"/kanban/{board}").status_code == 404
     column_id = columns(bob, board)[0]["id"]
     assert bob.post(f"/api/kanban/columns/{column_id}/tickets", json={"title": "x"}).status_code == 403
-    admin_client.post(f"/kanban/{board}/share", data={"action": "add_user", "user_id": bob_user["id"],
-                                                        "access_level": "write"})
+    share(admin_client, board, action="add_user", user_id=bob_user["id"], access_level="edit")
     assert bob.post(f"/api/kanban/columns/{column_id}/tickets", json={"title": "x"}).status_code == 201
-    admin_client.post(f"/kanban/{board}/share", data={"action": "add_role", "role": "user", "access_level": "view"})
+    assert db.scalar("SELECT access_level FROM kanban_board_shares WHERE target = ?", (bob_user["id"],)) == "edit"
+    share(admin_client, board, action="add_user", user_id=bob_user["id"], access_level="write")  # older name
+    assert db.scalar("SELECT access_level FROM kanban_board_shares WHERE target = ?", (bob_user["id"],)) == "edit"
+    share(admin_client, board, action="add_role", role="user", access_level="view")
     assert carol.get(f"/kanban/{board}").status_code == 200
-    # Only the owner and administrators manage sharing.
-    assert bob.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "public"}).status_code == 403
+    # Only the creator and administrators manage sharing.
+    assert share(bob, board, action="set_visibility", visibility="public").status_code == 403
 
 
-def test_individual_share_bypasses_global_access(app, admin_client, board, make_user, login):
+def test_a_personal_share_lists_only_that_board(app, admin_client, board, make_user, login):
     bob_user = make_user("bob")
     bob = as_client(app, login, bob_user)
     other = admin_client.post("/kanban/create", data={"title": "Hidden"})
-    assert bob.get("/kanban").status_code == 403
-    admin_client.post(f"/kanban/{board}/share", data={"action": "add_user", "user_id": bob_user["id"]})
+    share(admin_client, board, action="add_user", user_id=bob_user["id"])
     listing = bob.get("/kanban")
     assert listing.status_code == 200 and b"Roadmap" in listing.data and b"Hidden" not in listing.data
     assert bob.get(f"/kanban/{board_id_from(other)}").status_code == 404
 
 
-def test_role_share_limited_to_roles_with_access(admin_client, board):
-    admin_client.post(f"/kanban/{board}/share", data={"action": "add_role", "role": "editor"})
+def test_boards_are_shared_with_member_and_editor_roles_only(admin_client, board):
+    share(admin_client, board, action="add_role", role="admin")
+    share(admin_client, board, action="add_role", role="editor")
     settings = admin_client.get(f"/api/kanban/{board}/settings").get_json()
-    assert settings["shares"] == [] and settings["shareable_roles"] == ["admin"]
+    assert [s["target"] for s in settings["shares"]] == ["editor"]
+    assert settings["shareable_roles"] == ["user", "editor"]
 
 
-def test_access_change_revokes_role_shares_and_assignees(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="editor")
+def test_removing_a_role_share_unassigns_those_who_lost_access(app, admin_client, db, board, make_user, login):
     editor = make_user("eddie", role="editor")
-    admin_client.post(f"/kanban/{board}/share", data={"action": "add_role", "role": "editor"})
+    share(admin_client, board, action="add_role", role="editor")
     column_id = columns(admin_client, board)[0]["id"]
     ticket = new_ticket(admin_client, column_id, assignees=[editor["id"]])
     assert [a["id"] for a in ticket["assignees"]] == [editor["id"]]
-    admin_client.post("/kanban/settings", data={"kanban_access": "admin", "kanban_write_access": "admin"})
+    share(admin_client, board, action="remove_role", role="editor")
     assert db.scalar("SELECT COUNT(*) FROM kanban_board_shares WHERE board_id = ?", (board,)) == 0
-    assert db.scalar("SELECT assigned_to FROM kanban_tickets WHERE id = ?", (ticket["id"],)) is None
+    assert db.scalar("SELECT COUNT(*) FROM kanban_ticket_assignees WHERE ticket_id = ?", (ticket["id"],)) == 0
 
 
 def test_revert_drops_assignees_who_lost_access(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
     bob = make_user("bob")
     admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "private"})
     admin_client.post(f"/kanban/{board}/share", data={"action": "add_user", "user_id": bob["id"],
@@ -149,17 +199,16 @@ def test_revert_drops_assignees_who_lost_access(app, admin_client, db, board, ma
 
 
 def test_transfer_unassigns_a_former_owner_who_lost_access(app, db, make_user, login):
-    set_settings(db, kanban_access="all", kanban_write_access="all")
     alice_user = make_user("alice", role="editor")
     carol = make_user("carol", role="editor")
     alice = as_client(app, login, alice_user)
     kept = board_id_from(alice.post("/kanban/create", data={"title": "Public"}))
     hidden = board_id_from(alice.post("/kanban/create", data={"title": "Private"}))
-    alice.post(f"/kanban/{hidden}/share", data={"action": "set_visibility", "visibility": "private"})
+    share(alice, kept, action="set_visibility", visibility="members")
     tickets = {board_id: new_ticket(alice, columns(alice, board_id)[0]["id"], assignees=[alice_user["id"]])
                for board_id in (kept, hidden)}
     for board_id in (kept, hidden):
-        alice.post(f"/kanban/{board_id}/share", data={"action": "transfer_ownership", "user_id": carol["id"]})
+        share(alice, board_id, action="transfer_ownership", user_id=carol["id"])
     assert alice.get(f"/kanban/{hidden}").status_code == 404
     assigned = {board_id: db.column("SELECT user_id FROM kanban_ticket_assignees WHERE ticket_id = ?",
                                     (ticket["id"],)) for board_id, ticket in tickets.items()}
@@ -176,15 +225,19 @@ def test_feature_switch_hides_everything(app, admin_client, board):
 def test_public_mode_visitors_read_public_boards(app, admin_client, db, board):
     visitor = app.test_client()
     set_settings(db, public_mode=1)
-    assert visitor.get(f"/kanban/{board}").status_code == 302  # kanban's own switch is off
-    set_settings(db, kanban_public_access_enabled=1)
+    share(admin_client, board, action="set_visibility", visibility="members")
+    assert visitor.get(f"/kanban/{board}").status_code == 302  # members only
+    share(admin_client, board, action="set_visibility", visibility="public")
     assert visitor.get(f"/kanban/{board}").status_code == 200
     column_id = columns(visitor, board)[0]["id"]
     ticket = new_ticket(admin_client, column_id)
     assert visitor.get(f"/api/kanban/tickets/{ticket['id']}").status_code == 200
     assert visitor.get(f"/api/kanban/{board}/sync?since=0").status_code == 200
     assert visitor.post(f"/api/kanban/tickets/{ticket['id']}/comments", json={"content": "hi"}).status_code == 401
-    admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "shared"})
+    set_settings(db, public_mode=0)
+    assert visitor.get(f"/kanban/{board}").status_code == 302
+    set_settings(db, public_mode=1)
+    share(admin_client, board, action="set_visibility", visibility="private")
     assert visitor.get(f"/kanban/{board}").status_code == 302
 
 
@@ -312,19 +365,30 @@ def test_board_order_is_per_user_and_validated(app, admin_client, db, board):
     assert [r["board_id"] for r in rows] == [board, second] and all(r["user_id"] for r in rows)
     page = admin_client.get("/kanban").data
     assert page.index(b"Roadmap") < page.index(b"Second")
-    version = admin_client.get("/api/kanban/list-order-version").get_json()["list_order_version"]
-    set_settings(db, kanban_open_access=1)
-    admin_client.post("/api/kanban/board-order", json={"board_ids": [second, board]})
-    assert db.scalar("SELECT COUNT(*) FROM kanban_user_board_order WHERE user_id IS NULL") == 2
-    assert admin_client.get("/api/kanban/list-order-version").get_json()["list_order_version"] != version
     assert db.scalar("SELECT list_order_version FROM site_settings") == 0  # not shared with canvas
+
+
+def test_the_order_shared_under_open_access_is_kept_until_someone_arranges_their_own(app, admin_client, db, board,
+                                                                                    make_user, login):
+    second = board_id_from(admin_client.post("/kanban/create", data={"title": "Second"}))
+    db.execute("UPDATE kanban_boards SET visibility = 'members'")
+    db.executemany("INSERT INTO kanban_user_board_order (user_id, board_id, sort_order) VALUES (NULL, ?, ?)",
+                   [(second, 0), (board, 1)])
+    user_row = make_user("usr")
+    user = as_client(app, login, user_row)
+    page = user.get("/kanban").data
+    assert page.index(b"Second") < page.index(b"Roadmap")
+    user.post("/api/kanban/board-order", json={"board_ids": [board, second]})
+    page = user.get("/kanban").data
+    assert page.index(b"Roadmap") < page.index(b"Second")
+    assert db.scalar("SELECT COUNT(*) FROM kanban_user_board_order WHERE user_id IS NULL") == 2  # left as it was
+    assert db.scalar("SELECT COUNT(*) FROM kanban_user_board_order WHERE user_id = ?", (user_row["id"],)) == 2
 
 
 # IDOR
 
 
 def test_objects_of_hidden_boards_are_unreachable(app, admin_client, db, make_user, login):
-    set_settings(db, kanban_access="all", kanban_write_access="all")
     editor_user = make_user("eddie", role="editor")
     editor = as_client(app, login, editor_user)
     private = board_id_from(admin_client.post("/kanban/create", data={"title": "Secret"}))
@@ -371,7 +435,7 @@ def test_objects_of_hidden_boards_are_unreachable(app, admin_client, db, make_us
 
 
 def test_comment_permissions(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+    share(admin_client, board, action="set_visibility", visibility="members")
     reader = as_client(app, login, make_user("reader"))
     column_id = columns(admin_client, board)[0]["id"]
     ticket = new_ticket(admin_client, column_id)

@@ -82,7 +82,7 @@ def _category_nodes(user, counts, section) -> list[dict[str, Any]]:
     for category in all_rows:
         parent = parents[category["id"]] if parents[category["id"]] in known else None
         by_parent.setdefault(parent, []).append(category)
-    shows_empty = bool(user) and auth.has_role("editor", user)
+    shows_empty = bool(user) and auth.has_permission("page.create", user)
 
     def build(parent_id: int | None, trail: frozenset[int]) -> list[dict[str, Any]]:
         nodes: list[dict[str, Any]] = []

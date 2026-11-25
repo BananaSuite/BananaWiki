@@ -217,7 +217,7 @@ def test_the_attention_page_leads_to_the_overview(make_account, login, admin, po
 def test_the_theme_toggle_while_impersonating_is_the_administrators(make_account, login, admin, portal, query):
     customer = make_account(theme_mode="light")
     client = _client(portal, login, admin)
-    client.post(f"/admin/accounts/{customer['id']}/impersonate")
+    client.post(f"/admin/accounts/{customer['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
     client.post("/account/theme", data={"theme_mode": "dark"})
     assert query("SELECT theme_mode FROM accounts WHERE id = ?", (customer["id"],), one=True)["theme_mode"] == "light"
     assert query("SELECT theme_mode FROM accounts WHERE id = ?", (admin["id"],), one=True)["theme_mode"] == "dark"

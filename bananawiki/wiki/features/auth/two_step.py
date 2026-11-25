@@ -112,7 +112,13 @@ def missing(user: dict[str, Any] | None) -> bool:
 
 
 def pending_step(user: dict[str, Any], **_: Any) -> str | None:
-    """``account.pending_step`` interceptor: administrators who must turn it on first."""
+    """``account.pending_step`` interceptor: administrators who must turn it on first.
+
+    Not in a session that began with the hosting portal's sign-in: the wiki's codes only guard its own
+    passwords (the portal asks for its own codes), and an account without a password has none to guard.
+    """
+    if auth.signed_in_through_hosting() or not user.get("password_set", 1):
+        return None
     return "auth.two_step_settings" if missing(user) else None
 
 

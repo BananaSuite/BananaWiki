@@ -357,6 +357,109 @@ def list_users(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
                       for row in rows], "total": total}
 
 
+# Links to hosting accounts (Portal admin -> a wiki -> Account links)
+
+MAX_LINKS = 200
+_ACCOUNT_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def _link_status(row: dict[str, Any]) -> str:
+    if row.get("suspended"):
+        return "suspended"
+    status = str(row.get("approval_status") or "approved")
+    return "active" if status == "approved" else status
+
+
+def list_links(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
+    """One page of the wiki's users (oldest first) with what the linking tool needs: id, name, role, address,
+    state, whether the account has a password of its own, and its link to a hosting account."""
+    from bananawiki.core.sqlite import column_names
+
+    limit = _int(request, "limit", 500, 1, 1000)
+    offset = _int(request, "offset", 0, 0, 10_000_000)
+    with _session(cfg) as db:
+        total = int(db.scalar("SELECT COUNT(*) FROM users", default=0))
+        has_email = "email" in column_names(db.conn, "users")
+        rows = db.all(
+            "SELECT u.id, u.username, u.role, u.suspended, u.approval_status, u.password_set, "
+            + ("u.email" if has_email else "'' AS email")
+            + ", l.account_id, l.portal_username, l.linked_at FROM users u "
+            "LEFT JOIN platform_oauth_links l ON l.user_id = u.id ORDER BY u.created_at, u.rowid LIMIT ? OFFSET ?",
+            (limit, offset))
+    users = []
+    for row in rows:
+        link = None
+        if row["account_id"]:
+            link = {"account_id": str(row["account_id"])[:MAX_FIELD],
+                    "portal_username": str(row["portal_username"] or "")[:MAX_FIELD],
+                    "linked_at": str(row["linked_at"] or "")[:MAX_FIELD]}
+        users.append({"id": str(row["id"])[:MAX_FIELD], "username": str(row["username"])[:MAX_FIELD],
+                      "role": str(row["role"])[:MAX_FIELD], "email": str(row["email"] or "")[:254],
+                      "status": _link_status(row), "password_set": bool(row["password_set"]), "link": link})
+    return {"users": users, "total": total}
+
+
+def _actor(request: dict[str, Any]) -> str:
+    return _text(request, "actor", limit=MAX_FIELD, required=False) or "hosting administrator"
+
+
+def link_users(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
+    """Link wiki accounts to hosting accounts as a person's own link does (``platform_oauth_links``), checked
+    again here: an account linked meanwhile (on either side) is refused, never replaced."""
+    links = request.get("links")
+    if not isinstance(links, list) or not 0 < len(links) <= MAX_LINKS:
+        raise TaskError("invalid", "links must be a list of 1 to 200 entries")
+    wanted = []
+    for item in links:
+        if not isinstance(item, dict):
+            raise TaskError("invalid", "every link is an object")
+        user_id = _text(item, "user_id", limit=128)
+        account_id = _text(item, "account_id", limit=128)
+        if not _ACCOUNT_ID.fullmatch(account_id):
+            raise TaskError("invalid", "invalid account id")
+        wanted.append((user_id, account_id, _text(item, "portal_username", limit=MAX_FIELD, required=False)))
+    actor, rule = _actor(request), _text(request, "rule", limit=40, required=False) or "one"
+    linked, refused = [], []
+    with _session(cfg) as db, db.transaction():
+        for user_id, account_id, portal_username in wanted:
+            user = db.one("SELECT id, username FROM users WHERE id = ?", (user_id,))
+            if user is None:
+                refused.append({"user_id": user_id, "reason": "user_not_found"})
+                continue
+            mine = db.scalar("SELECT account_id FROM platform_oauth_links WHERE user_id = ?", (user_id,))
+            theirs = db.scalar("SELECT user_id FROM platform_oauth_links WHERE account_id = ?", (account_id,))
+            if mine == account_id:
+                refused.append({"user_id": user_id, "reason": "already_linked"})
+                continue
+            if mine is not None or theirs is not None:
+                refused.append({"user_id": user_id, "reason": "user_linked" if mine is not None else "account_linked"})
+                continue
+            db.execute("INSERT INTO platform_oauth_links (account_id, user_id, portal_username, linked_at) "
+                       "VALUES (?, ?, ?, ?)", (account_id, user_id, portal_username, _now()))
+            _audit(db, "user.platform_linked", user, {"username": user["username"], "via": "hosting administrator",
+                                                      "hosting_admin": actor, "rule": rule})
+            linked.append(user_id)
+    return {"linked": linked, "refused": refused}
+
+
+def unlink_user(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
+    """Drop a wiki account's link to a hosting account and end the sessions that came through it."""
+    user_id = _text(request, "user_id", limit=128)
+    with _session(cfg) as db, db.transaction():
+        user = db.one("SELECT id, username FROM users WHERE id = ?", (user_id,))
+        if user is None:
+            raise TaskError("user_not_found", user_id)
+        account_id = db.scalar("SELECT account_id FROM platform_oauth_links WHERE user_id = ?", (user_id,))
+        db.execute("DELETE FROM platform_oauth_links WHERE user_id = ?", (user_id,))
+        ended = db.execute("UPDATE user_sessions SET revoked_at = ?, revoked_reason = 'platform_signout' "
+                           "WHERE user_id = ? AND revoked_at IS NULL AND auth_method LIKE 'platform_oauth%'",
+                           (_now(), user_id)).rowcount
+        if account_id is not None:
+            _audit(db, "user.platform_unlinked", user, {"username": user["username"], "via": "hosting administrator",
+                                                        "hosting_admin": _actor(request)})
+    return {"account_id": account_id, "sessions_ended": ended}
+
+
 def set_password(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
     """Create the user, or set its password and role and end its sessions and tokens."""
     username = _username(request)
@@ -371,7 +474,7 @@ def set_password(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
             db.insert("users", {"id": _new_user_id(db), "username": username, "password": hashed, "role": role,
                                 "created_at": _now()})
             return {"created": True}
-        db.execute("UPDATE users SET password = ?, role = ? WHERE id = ?", (hashed, role, user["id"]))
+        db.execute("UPDATE users SET password = ?, role = ?, password_set = 1 WHERE id = ?", (hashed, role, user["id"]))
         _revoke(db, [user["id"]])
     return {"created": False}
 
@@ -527,8 +630,8 @@ def reset_admin(cfg: Any, request: dict[str, Any]) -> dict[str, Any]:
         for user in targets:
             # A saved original password (an admin's "temporary password") goes too, as with any new password:
             # restoring it would give back a password the previous owner knows.
-            db.execute("UPDATE users SET password = ?, force_password_change = 1, original_password_backup = NULL "
-                       "WHERE id = ?", (hashed, user["id"]))
+            db.execute("UPDATE users SET password = ?, force_password_change = 1, original_password_backup = NULL, "
+                       "password_set = 1 WHERE id = ?", (hashed, user["id"]))
         _revoke(db, [user["id"] for user in targets])
         two_step_reset = _reset_two_step(db, targets)
         _unlink_platform(db, [user["id"] for user in targets])
@@ -686,6 +789,7 @@ ACTIONS: dict[str, Callable[[Any, dict[str, Any]], dict[str, Any]]] = {
     "seed": seed, "migrate": migrate, "list_users": list_users, "set_password": set_password,
     "remove_user": remove_user, "reset_admin": reset_admin, "analytics": analytics, "apply_policy": apply_policy,
     "quarantine": quarantine, "snapshot": snapshot, "restore_db": restore_db, "discard": discard,
+    "list_links": list_links, "link_users": link_users, "unlink_user": unlink_user,
 }
 
 

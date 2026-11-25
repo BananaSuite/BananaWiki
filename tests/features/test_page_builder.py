@@ -9,6 +9,8 @@ import pytest
 
 from bananawiki.wiki.db import connection_scope
 
+from .access_support import only_stored_permissions
+
 DOC = {"version": 1, "blocks": [
     {"type": "heading", "level": 2, "text": "Welcome <b>"},
     {"type": "text", "text": "Line one\n<script>alert(1)</script>"},
@@ -24,7 +26,8 @@ DOC = {"version": 1, "blocks": [
 
 @pytest.fixture
 def builder_on(db):
-    db.execute("UPDATE site_settings SET page_builder_enabled = 1, page_builder_access = 'editor'")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
 
 
 @pytest.fixture
@@ -132,7 +135,8 @@ def test_host_switch_forbids_builder(app_factory, db, make_user, login):
 
 
 def test_plain_users_cannot_publish_even_with_user_access(builder_on, db, client, make_user, login, page):
-    db.execute("UPDATE site_settings SET page_builder_access = 'user'")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('user', 'page.use_builder', 1)")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
     login(client, make_user("reader1"))
     assert client.get(f"/page/{page['slug']}/builder").status_code in (302, 403)
     response = publish(client, page)
@@ -157,15 +161,16 @@ def test_editor_needs_category_write_access(builder_on, app, db, client, make_us
                (editor["id"],))
     db.execute("INSERT INTO user_allowed_categories (user_id, category_id, access_type) VALUES (?, ?, 'write')",
                (editor["id"], allowed["id"]))
-    for key in ("page.edit_all", "page.view_all"):
+    for key in ("page.edit_all", "page.view_all", "page.use_builder"):
         db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)", (editor["id"], key))
+    only_stored_permissions(db, editor["id"])
     login(client, editor)
     assert publish(client, theirs).status_code == 403
     assert publish(client, mine).status_code == 200
 
 
-def test_access_setting_minimum_role(builder_on, db, client, make_user, login, page):
-    db.execute("UPDATE site_settings SET page_builder_access = 'admin'")
+def test_the_builder_needs_its_permission(builder_on, db, client, make_user, login, page):
+    db.execute("DELETE FROM base_role_permissions WHERE permission_key = 'page.use_builder'")  # the default: off
     login(client, make_user("editor3", role="editor"))
     assert client.get(f"/page/{page['slug']}/builder").status_code == 403
     assert publish(client, page).status_code == 403
@@ -339,17 +344,9 @@ def test_anonymous_never_sees_private_builder_pages(builder_on, admin_client, ap
     assert anon.get(f"/page/{page['slug']}").status_code in (302, 403, 404)
 
 
-def test_settings_page(builder_on, admin_client, db):
-    assert admin_client.get("/admin/page-builder").status_code == 200
-    admin_client.post("/admin/page-builder", data={"page_builder_access": "user"})
-    assert db.scalar("SELECT page_builder_access FROM site_settings") == "user"
-    admin_client.post("/admin/page-builder", data={"page_builder_access": "owner"})
-    assert db.scalar("SELECT page_builder_access FROM site_settings") == "user"
-
-
-def test_settings_page_admin_only(builder_on, client, make_user, login):
-    login(client, make_user("editor5", role="editor"))
-    assert client.get("/admin/page-builder").status_code == 403
+def test_there_is_no_builder_settings_page(builder_on, admin_client, db):
+    """Who uses the builder is the permission ``page.use_builder`` (Admin → Roles); its switch is on Plugins."""
+    assert admin_client.get("/admin/page-builder").status_code == 404
 
 
 # Links to a renamed page, mentions of a merged account
@@ -439,10 +436,11 @@ def test_publishing_cannot_rename_without_edit_metadata(app, client, db, make_us
     from bananawiki.wiki import permissions
     from tests.features.pages_support import make_page, restrict
 
-    db.execute("UPDATE site_settings SET page_builder_enabled = 1, page_builder_access = 'editor' WHERE id = 1")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1 WHERE id = 1")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
     page = make_page(app, "Landing", "text")
     editor = make_user("builder_ed", role="editor")
-    restrict(db, editor, keys=permissions.defaults("editor") - {"page.edit_metadata"})
+    restrict(db, editor, keys=(permissions.defaults("editor") | {"page.use_builder"}) - {"page.edit_metadata"})
     login(client, editor)
     body = {"document": {"version": 1, "blocks": [{"type": "text", "text": "new"}]},
             "base_revision": page["revision"], "title": "Renamed"}

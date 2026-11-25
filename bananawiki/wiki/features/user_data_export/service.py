@@ -114,7 +114,8 @@ EXPORTED: tuple[Rows, ...] = (
                        "created_at FROM temp_roles WHERE user_id = ?"),
     Rows("temp_users", "SELECT CASE WHEN show_countdown = 1 THEN expires_at END AS expires_at, created_at "
                        "FROM temp_users WHERE user_id = ?"),
-    Rows("user_permissions", "SELECT permission_key FROM user_permissions WHERE user_id = ? ORDER BY permission_key"),
+    Rows("user_permissions",
+         "SELECT permission_key, granted FROM user_permissions WHERE user_id = ? ORDER BY permission_key"),
     Rows("user_category_access", "SELECT access_type, restricted FROM user_category_access WHERE user_id = ?"),
     Rows("user_allowed_categories", "SELECT category_id, access_type FROM user_allowed_categories WHERE user_id = ?"),
     Rows("editor_category_access", "SELECT restricted FROM editor_category_access WHERE user_id = ?"),
@@ -161,6 +162,8 @@ EXPORTED: tuple[Rows, ...] = (
                                   "review_source, reviewed_at, created_at, updated_at, base_revision "
                                   "FROM pending_contributions WHERE user_id = ? ORDER BY id",
          "page", "page_id", ("title", "content", "reason", "review_reason")),
+    Rows("access_requests", "SELECT id, scope, category_id, page_id, message, status, created_at, decided_at "
+                            "FROM access_requests WHERE user_id = ? ORDER BY id"),
     Rows("contribution_quota_requests", "SELECT id, requested_quota, reason, status, review_reason, review_source, "
                                         "reviewed_at, created_at FROM contribution_quota_requests WHERE user_id = ? "
                                         "ORDER BY id"),

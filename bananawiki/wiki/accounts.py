@@ -222,7 +222,7 @@ def set_password(user_id: str, new_password: str, *, keep_session_id: str | None
         ) != expected_password_hash:
             raise AccountError("auth.error.current_password_wrong")
         db.execute(
-            "UPDATE users SET password = ?, force_password_change = ?"
+            "UPDATE users SET password = ?, force_password_change = ?, password_set = 1"
             + ("" if keep_backup else ", original_password_backup = NULL") + " WHERE id = ?",
             (hashed, 1 if require_change else 0, user_id),
         )
@@ -263,10 +263,8 @@ def hand_over_canvases(session: Session, user_id: str, deleted_by: str | None = 
     ``canvas__layouts`` deletes a canvas together with its creator, so these
     move to the administrator doing the deletion (or the longest-standing
     active administrator). So does a private canvas shared with a person or a
-    role (view or edit), and under ``canvas_open_access`` every canvas not
-    archived (everyone may edit those): others work on them too. Only private
-    canvases nobody else may open are the account's private data and are
-    deleted with it.
+    role: others work on them too. Only private canvases nobody else may open
+    are the account's private data and are deleted with it.
     Kanban hands over its own work (``user.delete``). Needs no Flask
     application: the hosting operator's "remove wiki user" task
     (:mod:`bananawiki.ops.tenant_task`) calls it directly, :func:`delete` everywhere else.
@@ -280,13 +278,9 @@ def hand_over_canvases(session: Session, user_id: str, deleted_by: str | None = 
             "ORDER BY role = 'owner' DESC, created_at LIMIT 1", (user_id,))
     if successor is None:
         return
-    if session.scalar("SELECT canvas_open_access FROM site_settings WHERE id = 1", default=0):
-        session.execute(
-            "UPDATE canvas__layouts SET creator_id = ? WHERE creator_id = ? AND (visibility != 'private' "
-            "OR is_archived = 0)", (successor, user_id))
     session.execute(
         "UPDATE canvas__layouts SET creator_id = ? WHERE creator_id = ? AND (visibility != 'private' OR EXISTS "
-        "(SELECT 1 FROM canvas__permissions p WHERE p.layout_id = canvas__layouts.id AND p.permission != 'none' "
+        "(SELECT 1 FROM canvas__permissions p WHERE p.layout_id = canvas__layouts.id "
         "AND (p.role IS NOT NULL OR p.user_id != ?)))",
         (successor, user_id, user_id))
 

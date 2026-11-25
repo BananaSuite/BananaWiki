@@ -3,10 +3,13 @@
 {% block title %}{{ t('hosting.login.title') }}{% endblock %}
 {% block content %}
 <div class="card card--narrow">
-  <h1>{{ t('hosting.login.title') }}</h1>
+  <h1>{{ t('hosting.login.again_title') if again else t('hosting.login.title') }}</h1>
+  {% if again %}<p>{{ t('hosting.login.again_intro') }}</p>{% endif %}
+  {% if signup_closed %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.signup.closed') }}</div></div>{% endif %}
   <form method="post" action="{{ url_for('auth.login') }}" class="form">
     {{ ui.csrf() }}
     <input type="hidden" name="next" value="{{ next_url }}">
+    {% if again %}<input type="hidden" name="again" value="1">{% endif %}
     <input type="hidden" name="_form_time" value="{{ form_time }}">
     <div class="visually-hidden" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
     {{ ui.field('username', t('hosting.field.username'), username, required=true, attrs={'autocomplete': 'username', 'maxlength': 60, 'autofocus': 'autofocus'} if not username else {'autocomplete': 'username', 'maxlength': 60}) }}
@@ -15,6 +18,6 @@
   </form>
   {#- The separator between the two links is drawn by CSS and hidden when the second link wraps. -#}
   <p class="small recovery-links"><a href="{{ url_for('auth.forgot_password') }}">{{ t('hosting.login.forgot_password') }}</a> <a href="{{ url_for('auth.forgot_username') }}">{{ t('hosting.login.forgot_username') }}</a></p>
-  <p class="small">{{ t('hosting.login.no_account') }} <a href="{{ url_for('auth.signup') }}">{{ t('hosting.login.signup') }}</a></p>
+  {% if signup_offered and not again %}<p class="small">{{ t('hosting.login.no_account') }} <a href="{{ url_for('auth.signup', next=next_url or None) }}">{{ t('hosting.login.signup') }}</a></p>{% endif %}
 </div>
 {% endblock %}

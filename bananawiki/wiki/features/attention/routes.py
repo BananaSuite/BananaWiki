@@ -68,8 +68,8 @@ def dismiss_all():
 
 @bp.post("/settings/notifications")
 def save_preferences():
-    # The address receives this account's mail: not something to change while impersonating it.
-    if auth.is_impersonating():
+    # The address receives this account's mail: not something to change on its behalf.
+    if auth.on_behalf():
         abort(403)
     user = auth.current_user()
     try:
@@ -157,10 +157,7 @@ def _notification_values() -> dict[str, Any]:
         raise NotificationError("attention.admin.error.mode")
     values: dict[str, Any] = {
         "attention_email_enabled": 1 if request.form.get("attention_email_enabled") else 0,
-        "attention_email_mode": mode,
-        "attention_email_interval_minutes": _int("attention_email_interval_minutes", service.MIN_INTERVAL,
-                                                 service.MAX_INTERVAL),
-        "attention_email_daily_hour": _int("attention_email_daily_hour", 0, 23),
+        "attention_email_mode": mode,  # hourly digests and a daily email at 08:00 (fixed in version 24)
         "decision_email_enabled": 1 if request.form.get("decision_email_enabled") else 0,
     }
     if not current_app.config["BW"].base_url:

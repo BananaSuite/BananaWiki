@@ -36,7 +36,7 @@ def test_a_plain_administrators_daily_sign_out_spares_the_accounts_above_editors
 
 
 def test_the_settings_say_whom_it_signs_out(admin_client):
-    page = admin_client.get("/admin/sessions").get_data(as_text=True)
+    page = admin_client.get("/admin/settings?section=security").get_data(as_text=True)
     assert "Sign users and editors out every day" in page
-    italian = admin_client.get("/admin/sessions?lang=it").get_data(as_text=True)
+    italian = admin_client.get("/admin/settings?section=security&lang=it").get_data(as_text=True)
     assert "Disconnetti ogni giorno utenti ed editor" in italian

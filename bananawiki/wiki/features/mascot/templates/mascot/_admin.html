@@ -24,15 +24,15 @@
 <section class="card mascot-settings" aria-labelledby="mascot-eggs-heading">
   <h2 id="mascot-eggs-heading">{{ t('mascot.eggs.title') }}</h2>
   <p class="hint hint--block">{{ t('mascot.eggs.hint') }}</p>
-  <form method="post" action="{{ url_for('mascot.easter_eggs') }}" class="form">
-    {{ forms.csrf() }}
+  {#- Admin -> Appearance has one form (appearance-form) and one Save, in its header: these fields join it with
+      form="appearance-form" and the save_with_appearance interceptor stores them with the colours. -#}
+  <div class="form">
+    <input type="hidden" name="mascot_eggs" value="1" form="appearance-form">
     {% for egg in egg_ids %}
-    {#- Each switch applies when ticked: the page's Save is for the colours. -#}
-    <label class="check"><input type="checkbox" data-autosubmit name="egg_{{ egg }}" value="1"{% if eggs[egg] %} checked{% endif %}>
-      <span>{{ t('mascot.eggs.' ~ egg) }}<small>{{ t('mascot.eggs.' ~ egg ~ '_hint', count=clicks) }}</small></span></label>
+    <label class="check"><input type="checkbox" name="egg_{{ egg }}" value="1"{% if switches[egg] %} checked{% endif %} form="appearance-form">
+      <span>{{ t('mascot.eggs.' ~ egg) }}{% set hint = t('mascot.eggs.' ~ egg ~ '_hint', '', count=clicks) %}{% if hint %}<small>{{ hint }}</small>{% endif %}</span></label>
     {% endfor %}
-    <noscript><div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div></noscript>
-  </form>
+  </div>
 </section>
 <section class="card mascot-settings" aria-labelledby="mascot-egg-list-heading">
   <h2 id="mascot-egg-list-heading">{{ t('mascot.eggs.list_title') }}</h2>
@@ -44,15 +44,12 @@
   </div></div>
   {% endif %}
   {#- banana-eggs-admin.js turns the list into one card per egg and keeps the hidden field up to date; the
-      server cleans it again (core/eggs.py). Without scripts the list is saved as it was. -#}
-  <form method="post" action="{{ url_for('mascot.easter_egg_list') }}" class="form">
-    {{ forms.csrf() }}
-    <input type="hidden" id="mascot-egg-list" name="easter_egg_configs" value="{{ egg_list }}">
-    <div class="banana-eggs-editor" data-banana-eggs-editor data-input="mascot-egg-list">
-      <script type="application/json" data-banana-eggs-editor-options>{{ editor }}</script>
-    </div>
-    <div class="btn-row"><button class="btn btn--primary form-save" type="submit">{{ t('mascot.eggs.list_save') }}</button></div>
-  </form>
+      page's Save sends it and the server cleans it again (core/eggs.py). Without scripts the list is saved as
+      it was. -#}
+  <input type="hidden" id="mascot-egg-list" name="easter_egg_configs" value="{{ egg_list }}" form="appearance-form">
+  <div class="banana-eggs-editor" data-banana-eggs-editor data-input="mascot-egg-list">
+    <script type="application/json" data-banana-eggs-editor-options>{{ editor }}</script>
+  </div>
   <link rel="stylesheet" href="{{ asset_url('eggs/banana-eggs.css') }}">
   {#- The editor previews through banana-eggs.js, which every page already loads while the eggs are on. -#}
   {% if not eggs.konami %}<script src="{{ asset_url('eggs/banana-eggs.js') }}" defer></script>{% endif %}

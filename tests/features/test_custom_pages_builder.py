@@ -94,7 +94,7 @@ def test_only_custom_page_managers_use_the_custom_builder(enabled, app, admin_cl
     token, _initial, _html = editor_state(admin_client, page["id"])
     editor = app.test_client()
     login(editor, make_user("editor1", role="editor"))
-    db.execute("UPDATE site_settings SET page_builder_access = 'editor'")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
     assert editor.get(f"/admin/custom-pages/{page['id']}/builder").status_code == 403
     assert save(editor, page["id"], token).status_code == 403
     assert editor.post(f"/api/custom-pages/{page['id']}/builder/preview", data=json.dumps({"document": DOC}),

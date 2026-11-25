@@ -1,0 +1,63 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% block title %}{{ t('access_requests.title') }}{% endblock %}
+{% macro scope_label(row) -%}
+{% if row.scope == 'category' %}{{ t('access_requests.scope_short.category', category=row.category_name or '') }}{% else %}{{ t('access_requests.scope_short.wiki') }}{% endif %}
+{%- endmacro %}
+{% block admin_content %}
+<header class="page-header page-header--save"><h1>{{ t('access_requests.title') }}</h1>{{ forms.page_save('access-requests-form') }}</header>
+<div class="section-stack">
+<section class="card">
+  <form method="post" class="form" id="access-requests-form">
+    {{ forms.csrf() }}
+    {{ forms.checkbox('access_requests_enabled', t('access_requests.setting'), checked=enabled, hint=t('access_requests.setting_hint')) }}
+  </form>
+</section>
+
+<section class="card">
+  <h2>{{ t('access_requests.open_title') }}</h2>
+  {% if requests %}
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('access_requests.col.person') }}</th><th>{{ t('access_requests.col.request') }}</th><th>{{ t('access_requests.col.message') }}</th><th>{{ t('common.created') }}</th><th class="actions">{{ t('common.actions') }}</th></tr></thead>
+    <tbody>
+    {% for r in requests %}
+    <tr>
+      <td><a href="{{ url_for('admin.user_detail', user_id=r.user_id) }}">{{ r.username }}</a></td>
+      <td data-label="{{ t('access_requests.col.request') }}">{{ scope_label(r) }}
+        {% if r.page_slug %}<br><span class="muted small">{{ t('access_requests.from_page') }} <a href="{{ url_for('pages.view', slug=r.page_slug) }}">{{ r.page_title }}</a></span>{% endif %}
+        {#- What approving changes now: the person may have been given some of it since they asked. -#}
+        {% set adds = 'both' if r.changes.categories and r.changes['keys'] else 'category' if r.changes.categories else 'edit_all' if r.changes['keys'] else 'nothing' %}
+        <br><span class="muted small">{{ t('access_requests.adds.' ~ adds, category=r.category_name or '') }}</span></td>
+      <td data-label="{{ t('access_requests.col.message') }}">{{ r.message or '—' }}</td>
+      <td class="nowrap" data-label="{{ t('common.created') }}">{{ r.created_at|datetime }}</td>
+      <td class="actions"><div class="cluster">
+        {{ forms.post_button(url_for('access_requests.decide', request_id=r.id, action='approve'), t('access_requests.approve'), cls='btn btn--small btn--primary') }}
+        {{ forms.post_button(url_for('access_requests.decide', request_id=r.id, action='decline'), t('access_requests.decline'), cls='btn btn--small btn--danger-quiet') }}
+      </div></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="empty-state">{{ t('access_requests.none') }}</p>{% endif %}
+</section>
+
+{% if decided %}
+<section class="card">
+  <h2>{{ t('access_requests.decided_title') }}</h2>
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('access_requests.col.person') }}</th><th>{{ t('access_requests.col.request') }}</th><th>{{ t('common.status') }}</th><th>{{ t('access_requests.col.decided') }}</th></tr></thead>
+    <tbody>
+    {% for r in decided %}
+    <tr>
+      <td>{{ r.username }}</td>
+      <td data-label="{{ t('access_requests.col.request') }}">{{ scope_label(r) }}</td>
+      <td data-label="{{ t('common.status') }}"><span class="badge{% if r.status == 'approved' %} badge--success{% endif %}">{{ t('access_requests.status.' ~ r.status) }}</span></td>
+      <td class="nowrap" data-label="{{ t('access_requests.col.decided') }}">{{ r.decided_at|datetime }}{% if r.decided_by_username %} · {{ r.decided_by_username }}{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+{% endif %}
+</div>
+{% endblock %}

@@ -16,7 +16,9 @@ retire). Its failures are counted apart from everyone else's, so strangers
 who use up the account's shared budget cannot lock the owner out.
 
 Accounts with two-step verification (:mod:`.two_step`) answer a code after
-the password, or after the hosting portal's sign-in: :func:`finish` keeps
+the password (a sign-in through the hosting portal never asks: the portal
+asks for its own two-step code, and the wiki's codes are for its passwords):
+:func:`finish` keeps
 the sign-in pending (in the session cookie, for five minutes, bound to the
 password and the two-step set-up) and :func:`finish_second_step` completes
 it. Wrong codes are limited (:func:`check_code`):
@@ -218,7 +220,7 @@ def landing_url(user: dict[str, Any], next_url: str | None, *, default: str = "/
         return url_for("auth.force_password_change")
     if user.get("onboarding_required"):
         return url_for("auth.onboarding")
-    if two_step.missing(user):
+    if two_step.missing(user) and not auth.signed_in_through_hosting():
         return url_for("auth.two_step_settings")
     target = safe_next("", next_url)
     if user.get("intro_required"):
@@ -229,16 +231,23 @@ def landing_url(user: dict[str, Any], next_url: str | None, *, default: str = "/
 
 
 def finish(user: dict[str, Any], *, remember: bool, next_url: str | None, method: str = "password",
-           default: str = "/", platform_account: str | None = None) -> Response:
+           default: str = "/", platform_account: str | None = None,
+           acting: dict[str, Any] | None = None) -> Response:
     """Start the session (unless maintenance keeps this account out) and redirect.
 
-    With two-step verification on, the sign-in waits for a code first
-    (:func:`finish_second_step`). A platform sign-in names the portal account
-    (*platform_account*), whose link is checked again once the code is in.
+    With two-step verification on, a password sign-in waits for a code first
+    (:func:`finish_second_step`); a sign-in through the hosting portal
+    (*method* ``platform_oauth``, naming the portal account in
+    *platform_account*) does not: the portal asked for its own. *acting*: a
+    hosting administrator signs in as *user* (see :func:`auth.start_session`).
     """
     if settings.maintenance_active() and not auth.is_admin(user):
         return redirect(url_for("auth.maintenance"))
-    if two_step.enabled(user["id"]):
+    if acting is not None:
+        record("user.acting_signin", actor_id=user["id"], target_type="user", target_id=user["id"],
+               details={"username": user["username"], "hosting_admin": acting["admin"],
+                        "until": acting["expires_at"]})
+    if two_step.enabled(user["id"]) and not method.startswith("platform_oauth"):
         language = session.get("interface_language")
         session.clear()  # whoever was signed in in this browser is no longer
         if language:
@@ -249,12 +258,12 @@ def finish(user: dict[str, Any], *, remember: bool, next_url: str | None, method
             "platform_account": platform_account,
         }
         return redirect(url_for("auth.two_step_login"))
-    return _complete(user, remember=remember, next_url=next_url, method=method, default=default)
+    return _complete(user, remember=remember, next_url=next_url, method=method, default=default, acting=acting)
 
 
 def _complete(user: dict[str, Any], *, remember: bool, next_url: str | None, method: str,
-              default: str) -> Response:
-    auth.start_session(user, remember=remember, method=method)
+              default: str, acting: dict[str, Any] | None = None) -> Response:
+    auth.start_session(user, remember=remember, method=method, acting=acting)
     emit("user.login", user=user)
     signed_in = auth.current_user() or user
     response = redirect(landing_url(signed_in, next_url, default=default))

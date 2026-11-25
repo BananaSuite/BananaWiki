@@ -207,8 +207,10 @@ def test_my_drafts_hides_titles_of_pages_no_longer_visible(app, client, make_use
     assert client.get("/api/draft/mine", headers=JSON).get_json() == []
 
 
-def test_plain_users_have_no_drafts_page(app, client, make_user, login):
+def test_drafts_need_their_permission(app, client, db, make_user, login):
     login(client, make_user("dr_user"))
+    assert client.get("/drafts").status_code == 200  # members edit their own pages: they keep drafts too
+    db.execute("INSERT INTO base_role_permissions (role, permission_key, granted) VALUES ('user', 'draft.view_own', 0)")
     assert client.get("/drafts").status_code == 403
     assert client.get("/api/draft/mine", headers=JSON).status_code == 403
 

@@ -239,7 +239,8 @@ def tree(user: dict[str, Any] | None = None, *, include_pages: bool = True) -> d
 
 
 def _is_writer(user: dict[str, Any]) -> bool:
-    return auth.has_role("editor", user)
+    """People who may create pages see empty categories too (to add pages to them)."""
+    return auth.has_permission("page.create", user)
 
 
 def _clean_name(name: str | None) -> str:

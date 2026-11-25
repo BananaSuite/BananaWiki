@@ -14,7 +14,8 @@ from bananawiki.wiki.db import connection_scope
 def builder_page(app, db):
     from bananawiki.wiki.features.pages import service
 
-    db.execute("UPDATE site_settings SET page_builder_enabled = 1, page_builder_access = 'editor'")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
     with app.test_request_context(), connection_scope():
         return service.create("Target", "x", author_id=None)
 

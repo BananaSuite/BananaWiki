@@ -32,11 +32,15 @@
       <div class="page-header__actions no-print">
         {% if can_edit %}
         <a class="btn btn--primary btn--small" href="{{ url_for('pages.edit', slug=page.slug) }}"{% if blocked %} aria-disabled="true" title="{{ t(blocked) }}"{% endif %}>{{ t('common.edit') }}</a>
+        {% elif current_user %}
+        {#- A reader who may not edit: another feature may offer a way in (asking for edit access). -#}
+        {% set edit_unavailable = slot('page.edit_unavailable', page=page) %}{{ edit_unavailable }}
         {% endif %}
         {% set feature_actions = slot('page.header_actions', page=page) %}
         <details class="menu page-actions-menu">
           <summary class="btn btn--small menu__toggle">{{ t('pages.actions.menu') }}</summary>
           <div class="menu__panel">
+            {% if current_user and not can_edit and not edit_unavailable %}<p class="menu__label">{{ t('pages.why.title') }}</p><hr>{% endif %}
             {% if feature_actions %}<div class="page-actions-menu__tools">{{ feature_actions }}</div><hr>{% endif %}
             {% if can_view_history and feature_enabled('page_history') %}<a href="{{ url_for('pages.history', slug=page.slug) }}" data-bm-hide="pages.simple_reading">{{ t('pages.actions.history') }}</a>{% endif %}
             {% if can_edit_metadata and not blocked %}

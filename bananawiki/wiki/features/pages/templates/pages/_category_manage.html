@@ -32,8 +32,8 @@
   <form method="post" action="{{ url_for('pages.sequential_nav', category_id=category.id) }}" class="cluster category-manage__sequential">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="sequential_nav" value="0">
-    <label class="check"><input type="checkbox" name="sequential_nav" value="1"{% if category.sequential_nav %} checked{% endif %}> <span>{{ t('pages.category.sequential') }}<small>{{ t('pages.category.sequential_hint') }}</small></span></label>
-    <button class="btn btn--small">{{ t('common.save') }}</button>
+    <label class="check"><input type="checkbox" name="sequential_nav" value="1"{% if category.sequential_nav %} checked{% endif %} data-autosubmit> <span>{{ t('pages.category.sequential') }}<small>{{ t('pages.category.sequential_hint') }}</small></span></label>
+    <noscript><button class="btn btn--small">{{ t('common.save') }}</button></noscript>
   </form>
   {% endif %}
   {% if manage.delete %}

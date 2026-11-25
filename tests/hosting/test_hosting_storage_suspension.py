@@ -151,7 +151,7 @@ def test_reopening_a_wiki_still_over_its_limit_warns_the_administrator(portal, r
     client = portal.test_client()
     login(client, admin)
     page = client.get(f"/admin/instances/{wiki['id']}").get_data(as_text=True)
-    assert "Maintenance reopens it once it fits" in page
+    assert "It reopens once it fits. Raise the limit under Limits" in page
     response = client.post(f"/admin/instances/{wiki['id']}/unsuspend", follow_redirects=True)
     text = response.get_data(as_text=True)
     assert _status(query, wiki) == "running"
@@ -180,4 +180,4 @@ def test_the_owner_sees_how_a_storage_suspension_ends(portal, runtime, wiki, log
     owner = query("SELECT * FROM accounts WHERE username = 'storageowner'", one=True)
     login(client, owner)
     page = client.get(f"/instances/{wiki['id']}").get_data(as_text=True)
-    assert "It reopens once it fits again" in page
+    assert "It reopens once it fits. Write to" in page

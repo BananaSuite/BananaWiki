@@ -120,6 +120,10 @@ without it the cookie ends with the browser session).
 | `BW_PLUGIN_ISOLATION` | none | `container` tells a managed wiki that it runs in its own container, which allows third-party plugins. |
 | `BW_EXTERNAL_PLUGINS_DIR` | `<instance>/plugins` | See the data table above. |
 | `BW_MANAGED_PLUGIN_DENYLIST` | none | Feature and plugin ids that never load. |
+| `BW_AUDIT_RETENTION_DAYS` | 365 | Days the [audit log](security.md#audit-log) keeps entries (0 keeps them forever). A setting until version 24. |
+| `BW_API_RATE_LIMIT`, `BW_API_ADMIN_RATE_LIMIT` | 60, 120 | REST API calls a minute per account, for members and for administrators. Settings until version 24. |
+| `BW_API_MAX_TOKENS_PER_USER` | 5 | Active API tokens per account. |
+| `BW_API_WEBHOOK_MAX_FAILURES` | 20 | Failed deliveries in a row after which a webhook is switched off (0: never). |
 | `BW_EASY_WIKI` | `0` | Starts the wiki in [BM mode](features.md#bm-mode), the easy mode: chat, assessments, custom pages, page builder, page governance, contributions, federation and read aloud are hidden, and pages, Kanban, canvases and the admin menu are simpler, until an administrator chooses otherwise under **Admin → BM mode**. A later change of this variable wins over that choice. |
 
 ## Email
@@ -207,7 +211,8 @@ Invalid values log a warning and fall back to the default.
 | `BW_TTS_SHUTDOWN_GRACE_SECONDS` | 20 | Jobs still running this long after a stop request go back to the queue. |
 | `BW_TTS_MAX_JOB_SECONDS` | 3600 (300–86400) | Longest a job may run; then Piper is stopped and the job fails. Keep it above `BW_TTS_REMOTE_GPU_TIMEOUT`. |
 | `BW_TTS_PIPER_MEMORY_MB` | 0 (none) | Address-space limit (`RLIMIT_AS`) of the Piper process on Linux; a page that needs more fails. See [read aloud](tts.md#limits). |
-| `BW_TTS_PERFORMANCE_MODE` | from the admin page | `auto`, `balanced` or `fast`. |
+| `BW_TTS_PERFORMANCE_MODE` | `auto` | `auto`, `balanced` or `fast`. |
+| `BW_TTS_LANGUAGES` | the wiki's interface languages | Languages pages are read in, as codes (`en,it,fr`). |
 | `BW_TTS_PIPER_AUTO_DOWNLOAD` | `1` | Download missing Piper voices on first use. The hosting platform sets `0` for wikis on an isolated network. |
 | `BW_TTS_PIPER_VOICE_MAP` | built-in voices | Extra or replacement voices: JSON (`{"de": "de_DE-thorsten-high"}`) or `de=de_DE-thorsten-high,pt=pt_BR-faber-medium`. |
 | `BW_TTS_PIPER_OUTPUT_FORMAT` | `auto` | `auto`, `wav` or `mp3` (MP3 needs ffmpeg). |
@@ -314,7 +319,7 @@ installations set them to `<root>/data`.
 | `HOSTING_TENANT_PLUGIN_DENYLIST` | none | Plugin ids tenants may never load. |
 | `HOSTING_TTS_GPU_TENANT_TOKENS` | `1` | Give each wiki its own GPU speech token derived from the master token instead of the master token itself. Needs the 1.7 GPU speech server or later; set `0` only while an older GPU server is still running. |
 | `HOSTING_FEDERATION_INSTANCES` | none | Wiki ids (from the portal) whose tenants get `BW_FEDERATION_ENABLED=1`; `*` for every wiki. |
-| `MAX_INSTANCES_PER_ACCOUNT` | 5 | Wikis per customer (suspended ones count, and so do those the owner terminated while their data is kept; checked again when a customer accepts a transfer). A customer may create twice this many wikis in 24 hours. |
+| `MAX_INSTANCES_PER_ACCOUNT` | 5 (0 = no limit) | Wikis per customer (suspended ones count, and so do those the owner terminated while their data is kept; checked again when a customer accepts a transfer). A customer may create twice this many wikis in 24 hours, or 20 with no limit. Accounts on probation keep `HOSTING_NEW_ACCOUNT_MAX_INSTANCES`. |
 | `INSTANCE_DURATION_DAYS` | 14 (0 = never expire) | Lifetime of a new, restored or renewed wiki. |
 | `HOSTING_EXPIRY_WARNING_DAYS` | `3,1` (empty or `0` = none) | Days before expiry on which owners are warned by email; owners are also told when a wiki expired. |
 | `INSTANCE_STORAGE_LIMIT_MB` | 500 | Storage per wiki. |
@@ -357,7 +362,7 @@ passes it `BW_ALLOW_EXTERNAL_PLUGINS=0`.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `HOSTING_DEFAULT_SIGNUP_MODE` | `open` | Sign-up mode of a new platform: `open`, `invite`, `approval` or `closed`. |
+| `HOSTING_DEFAULT_SIGNUP_MODE` | `open` | Sign-up mode of a new platform: `open`, `invite` or `closed`. `approval` (the old name) means `open` with **Require administrator approval** on. |
 | `HOSTING_TERMS_URL`, `HOSTING_PRIVACY_URL` | none | Your own terms of service and privacy policy: absolute `https://` addresses (`http://` for an onion address, which Tor already encrypts), set together (they may be the same page). `/terms`, `/privacy` and `/compliance` (the terms) redirect there, and every link of the portal to them goes through those. Unset, they redirect to `/terms/` and `/privacy/` of the static site on `BASE_DOMAIN` (`index.it.html` in Italian), or to the help centre without a base domain. Set `HOSTING_TERMS_VERSION` with them: the portal logs a warning otherwise. See [hosting](hosting.md#help-centre-and-legal-pages). |
 | `HOSTING_TERMS_URL_IT`, `HOSTING_PRIVACY_URL_IT`, `HOSTING_TERMS_URL_DE`, `HOSTING_PRIVACY_URL_DE` | the address above | The Italian or German version, for visitors whose portal language is Italian or German. Each needs the address above. Every interface language of the portal other than English has such a pair (`HOSTING_TERMS_URL_<LANG>`, `HOSTING_PRIVACY_URL_<LANG>`). |
 | `HOSTING_TERMS_VERSION` | the release's `TERMS_VERSION` | Version (`YYYY-MM-DD`) printed on the terms and privacy pages you publish: what sign-ups and `/account/terms` record as accepted. Set it whenever you publish new pages. See [hosting](hosting.md#help-centre-and-legal-pages). |
@@ -380,7 +385,13 @@ optional or not asked), whether existing accounts must add one, whether one
 address may serve several accounts, email verification, which notices
 account holders and administrators receive, and **Pause all email**, which
 stops every message at once (also `bananawiki hosting-admin settings email-pause
-on|off`). See [hosting](hosting.md#email).
+on|off`). See [hosting](hosting.md#email). So is **Settings → Acting as an
+account**: how long acting lasts (`admin_act_minutes`, 30), whether the account
+is emailed when it starts (`admin_act_notify`, off) and whether acting
+administrators may sign in to wikis and apps (`admin_app_signin`, off). Each
+wiki can refuse the last one under **Admin → Site settings → Security → Allow
+hosting administrators to sign in as users** (on). See
+[hosting](hosting.md#acting-as-an-account).
 
 ### Archives
 

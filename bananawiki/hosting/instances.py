@@ -488,7 +488,7 @@ def policy(inst: dict[str, Any]) -> TenantPolicy:
     tts_allowed = _tts_allowed(inst)
     gpu = None
     token = settings.tts_gpu_token()
-    if tts_allowed and settings.flag("global_tts_gpu_enabled") and settings.get("global_tts_gpu_url") and token:
+    if tts_allowed and (settings.get("global_tts_gpu_url") or "").strip() and token:
         if config.tts_gpu_tenant_tokens:
             token = tenant_tts_token(token, inst["id"])
         gpu = TtsGpu(url=str(settings.get("global_tts_gpu_url")).strip().rstrip("/"), token=token,
@@ -657,21 +657,27 @@ def on_probation(account: dict[str, Any]) -> bool:
     if account["is_admin"] or days <= 0 or account.get("approved_by") or not account.get("terms_accepted_at"):
         return False
     created = parse(account.get("created_at"))
-    return created is None or utcnow() - created < timedelta(days=days)
+    # An unreadable creation date cannot keep an account on probation for ever.
+    return created is not None and utcnow() - created < timedelta(days=days)
 
 
-def account_limit(account: dict[str, Any]) -> int:
-    """How many live wikis *account* may own (``MAX_INSTANCES_PER_ACCOUNT``, less while on probation)."""
+def account_limit(account: dict[str, Any]) -> int | None:
+    """How many live wikis *account* may own (``MAX_INSTANCES_PER_ACCOUNT``, less while on probation); None for
+    no limit (``MAX_INSTANCES_PER_ACCOUNT=0``, outside probation)."""
     limits = cfg().limits
     if on_probation(account):
+        if not limits.max_per_account:
+            return limits.new_account_max_instances
         return min(limits.max_per_account, limits.new_account_max_instances)
-    return limits.max_per_account
+    return limits.max_per_account or None
 
 
 ACCEPTING_MINUTES = 15  # a transfer whose wiki has not moved after this was left by a worker that died
 # Wikis an account may create in 24 hours, per wiki it may hold: enough to start over a few times, while a
 # loop of creating and terminating wikis (each one orders a certificate) soon stops.
 CREATIONS_PER_PLACE_PER_DAY = 2
+# Wikis an account without a limit (MAX_INSTANCES_PER_ACCOUNT=0) may create in 24 hours: the same loop stops there.
+UNLIMITED_CREATIONS_PER_DAY = 20
 # A terminated wiki that still holds its owner's place: its owner (or a collaborator allowed to) terminated it on
 # the dashboard, and its data is kept and not held by an administrator's pause of the countdown. Administrators
 # terminate with reason "admin", on the console and on the command line alike.
@@ -725,10 +731,10 @@ def check_account_capacity(account: dict[str, Any], *, receiving: int | None = N
                       "AND i.account_id != ? AND t.id != ?",
                       (account["id"], sql_in(minutes=-ACCEPTING_MINUTES), account["id"], receiving or 0), default=0)
     limit = account_limit(account)
-    if held >= limit:
+    if limit is not None and held >= limit:
         if retained:
             raise ServiceError("hosting.instances.account_limit_retained", max=limit)
-        if limit < cfg().limits.max_per_account:
+        if on_probation(account) and (not cfg().limits.max_per_account or limit < cfg().limits.max_per_account):
             raise ServiceError("hosting.instances.new_account_limit", max=limit,
                                days=cfg().limits.new_account_days)
         raise ServiceError("hosting.instances.account_limit", max=limit)
@@ -745,7 +751,8 @@ def _check_capacity(account: dict[str, Any]) -> None:
         return
     settings.load(fresh=True)  # preflight may have cached policy before this write lock
     check_account_capacity(account)
-    budget = CREATIONS_PER_PLACE_PER_DAY * account_limit(account)
+    limit = account_limit(account)
+    budget = UNLIMITED_CREATIONS_PER_DAY if limit is None else CREATIONS_PER_PLACE_PER_DAY * limit
     # By whoever created them, wherever they went since: a wiki given away (a transfer) and deleted by its
     # new owner still counts. Its own rows count too, for creations not yet recorded.
     since = sql_in(days=-1)
@@ -763,7 +770,11 @@ def _check_capacity(account: dict[str, Any]) -> None:
             raise ServiceError("hosting.instances.platform_full")
         limits = cfg().limits
         if on_probation(account) and limits.new_account_days > 0:
+            # Rounded down, but never to none while new accounts have a share: on a small platform (a limit
+            # of 1, say) a newcomer could otherwise never create a wiki.
             share = maximum * limits.new_account_share_percent // 100
+            if limits.new_account_share_percent > 0:
+                share = max(share, 1)
             newcomers = db.scalar(
                 "SELECT COUNT(*) FROM instances i JOIN accounts a ON a.id = i.account_id "
                 f"WHERE {_on_platform('i')} AND a.is_admin = 0 AND a.approved_by IS NULL "
@@ -2007,7 +2018,10 @@ def rename_for_non_admin(inst: dict[str, Any], *, actor_id: str | None) -> dict[
     return get(inst["id"])  # type: ignore[return-value]
 
 
-def set_storage_limit(inst: dict[str, Any], limit_mb: int | None, *, actor_id: str) -> bool:
+# apply=False stores a setting without pushing it: the caller stores several and calls apply_policy once.
+
+
+def set_storage_limit(inst: dict[str, Any], limit_mb: int | None, *, actor_id: str, apply: bool = True) -> bool:
     require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
@@ -2015,19 +2029,25 @@ def set_storage_limit(inst: dict[str, Any], limit_mb: int | None, *, actor_id: s
         limit_mb = 0
     db.update("instances", {"storage_limit_mb": limit_mb}, "id = ?", (inst["id"],))
     events.record("instance", inst["id"], "instance.storage_limit", actor_id, str(limit_mb))
-    return apply_policy(inst, actor_id=actor_id)
+    return apply_policy(inst, actor_id=actor_id) if apply else True
 
 
-def set_upload_policy(inst: dict[str, Any], size_mb: int | None, blocked: str, *, actor_id: str) -> bool:
+def blocked_extensions(text: str | None) -> str:
+    """A wiki's own blocked upload extensions as stored (``upload_blocked_extensions``)."""
+    return ",".join(_extensions(text))
+
+
+def set_upload_policy(inst: dict[str, Any], size_mb: int | None, blocked: str, *, actor_id: str,
+                      apply: bool = True) -> bool:
     require_ready(inst)
     if inst["status"] == "terminated":
         raise ServiceError("hosting.instances.terminated")
     if size_mb is not None and not 1 <= size_mb <= 2048:
         raise ServiceError("hosting.instances.invalid_upload_size")
-    db.update("instances", {"upload_max_size_mb": size_mb, "upload_blocked_extensions": ",".join(_extensions(blocked))},
+    db.update("instances", {"upload_max_size_mb": size_mb, "upload_blocked_extensions": blocked_extensions(blocked)},
               "id = ?", (inst["id"],))
     events.record("instance", inst["id"], "instance.upload_policy", actor_id)
-    return apply_policy(inst, actor_id=actor_id)
+    return apply_policy(inst, actor_id=actor_id) if apply else True
 
 
 def set_easy_wiki(inst: dict[str, Any], enable: bool, *, actor_id: str, charge: dict[str, Any] | None = None) -> None:
@@ -2048,7 +2068,8 @@ def set_easy_wiki(inst: dict[str, Any], enable: bool, *, actor_id: str, charge: 
 SIGNIN_MODES = ("", "local", "both", "platform")
 
 
-def set_signin_mode(inst: dict[str, Any], mode: str, *, actor_id: str | None, force: bool = False) -> bool:
+def set_signin_mode(inst: dict[str, Any], mode: str, *, actor_id: str | None, force: bool = False,
+                    apply: bool = True) -> bool:
     """Decide how members sign in to the wiki over its administrators' choice (``""`` gives it back to them).
 
     The wiki gets it as ``BW_PLATFORM_SIGNIN_MODE`` when it restarts (now, if it runs); returns False when the
@@ -2070,7 +2091,7 @@ def set_signin_mode(inst: dict[str, Any], mode: str, *, actor_id: str | None, fo
         raise ServiceError("hosting.instances.signin_mode_nobody_linked")
     db.update("instances", {"platform_signin_mode": mode}, "id = ?", (inst["id"],))
     events.record("instance", inst["id"], "oauth.signin_mode", actor_id, mode or "wiki")
-    return apply_policy(inst, actor_id=actor_id)
+    return apply_policy(inst, actor_id=actor_id) if apply else True
 
 
 def set_use_case(inst: dict[str, Any], text: str) -> None:

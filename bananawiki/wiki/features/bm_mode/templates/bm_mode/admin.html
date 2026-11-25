@@ -3,7 +3,6 @@
 {% block title %}{{ t('bm_mode.title') }}{% endblock %}
 {% block admin_content %}
 <header class="page-header page-header--save"><h1>{{ t('bm_mode.title') }}</h1>{{ forms.page_save('bm-settings-form') }}</header>
-<p class="muted">{{ t('bm_mode.intro') }}</p>
 <form class="form section-stack" id="bm-settings-form" method="post" action="{{ url_for('bm_mode.settings') }}">
   {{ forms.csrf() }}
   <section class="form-section" aria-labelledby="bm-switch-heading">
@@ -13,29 +12,15 @@
   </section>
   <section class="form-section" id="bm-people" aria-labelledby="bm-people-heading">
     <h2 id="bm-people-heading">{{ t('bm_mode.people.title') }}</h2>
-    {{ forms.checkbox('bm_self_service', t('bm_mode.people.self_service'), checked=self_service, hint=t('bm_mode.people.self_service_hint')) }}
+    {#- Nobody can switch for themselves while the whole wiki is in BM mode: shown only while it is not (admin.js). -#}
+    <div data-reveal-for="bm_mode" data-reveal-values="">{{ forms.checkbox('bm_self_service', t('bm_mode.people.self_service'), checked=self_service, hint=t('bm_mode.people.self_service_hint')) }}</div>
     {{ forms.checkbox('bm_new_accounts', t('bm_mode.people.new_accounts'), checked=new_accounts) }}
     <p class="muted">{{ tn('bm_mode.people.count', in_bm_mode) }}</p>
   </section>
-  <section class="form-section" aria-labelledby="bm-features-heading">
-    <h2 id="bm-features-heading">{{ t('bm_mode.features_title') }}</h2>
-    <p class="hint">{{ t('bm_mode.features_hint') }}</p>
-    <div class="check-grid">
-      {% for item in features %}
-      {{ forms.checkbox('feature_' ~ item.id, item.name, checked=item.shown, hint=(t('bm_mode.off_by_default') if not item.default else '')) }}
-      {% endfor %}
-    </div>
-  </section>
-  <section class="form-section" aria-labelledby="bm-simplify-heading">
-    <h2 id="bm-simplify-heading">{{ t('bm_mode.simplifications_title') }}</h2>
-    {% for item in simplifications %}
-    {{ forms.checkbox('simplify_' ~ item.id, item.feature ~ ': ' ~ item.label, checked=item.on, hint=item.description) }}
-    {% else %}<p class="muted">{{ t('bm_mode.no_simplifications') }}</p>{% endfor %}
-  </section>
+  <p class="hint">{{ t('bm_mode.what_it_hides') }}</p>
 </form>
 <section class="card" id="bm-everyone" aria-labelledby="bm-everyone-heading">
   <h2 id="bm-everyone-heading">{{ t('bm_mode.everyone.title') }}</h2>
-  <p class="hint">{{ t('bm_mode.everyone.hint') }}</p>
   <form class="form" method="post" action="{{ url_for('bm_mode.everyone') }}">
     {{ forms.csrf() }}
     <fieldset>

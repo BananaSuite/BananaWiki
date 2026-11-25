@@ -4,7 +4,46 @@
 
 ### Upgrading
 
-* Wiki databases move to schema 21 (`site_settings.signin_mode`, then the easter eggs) and the hosting portal's database to schema 13; 1.8.0 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-180-to-unreleased) first.
+* Wiki databases move to schema 26 (`site_settings.signin_mode`, the easter eggs, the retired site icon switch, the permission model, fewer settings, sign-in methods and acting administrators, then people's own permissions and requests for edit access) and the hosting portal's database to schema 15; 1.8.0 cannot open them afterwards, so back up first if you may want to go back. Read [UPGRADING.md](UPGRADING.md#upgrading-from-180-to-unreleased) first.
+
+### Sign-in with BananaWiki Hosting (BananaSuite sign-in round 3)
+
+* **Fresh sign-in on request** (portal): `/oauth/authorize` takes `prompt=login` and `max_age`; the token response and userinfo carry `auth_time` and `amr` (also listed in the OAuth metadata).
+* **Confirm with BananaWiki Hosting** (wiki): every form that asks for the password before a change offers a fresh portal sign-in instead to connected accounts; it stands for the password for ten minutes. Accounts made through the portal have no password of their own (`users.password_set`) and see only this option until they set one.
+* **Sign-in methods** (wiki): one section under **Settings → Security** for BananaWiki Hosting (connect, disconnect), the password (set or change), two-step codes and the email address. The first sign-in page offers "I already have an account here" and "Create a new account" more clearly, and keeps what was typed.
+* A sign-in through BananaWiki Hosting no longer asks for the wiki's two-step code; password sign-ins still do.
+* **Acting as an account** (portal): needs the administrator's password or two-step code and a reason, ends by itself after `admin_act_minutes` (30), can email the account (`admin_act_notify`), never targets administrators, and is in the moderation log from start to end. With `admin_app_signin` (off) acting administrators also sign in to wikis and apps as the account (`act`, `act_expires_at`); wikis show a banner, end the session with the acting, name the administrator in the audit log and refuse changes to the password, two-step codes, email, sign-in methods, API keys and deleting the account (**Allow hosting administrators to sign in as users**, on, lets a wiki refuse).
+* **Sign-up from a wiki or an app**: `/oauth/authorize` takes `prompt=create` and opens the portal's sign-up form (all its rules), naming the wiki or app, then continues; pages for confirming the address or waiting for approval link back to it. The OAuth metadata lists `create` while sign-up is not closed and says `signup` (`open`, `invite`, `closed`). Wikis that take hosting accounts only show "Create an account" on their sign-in page while the portal takes new accounts, and create the wiki account at once on the way back, under the wiki's sign-up policy. The portal sign-in page hides its sign-up link while sign-up is closed.
+* **Account lookup** (portal API): scope `accounts:lookup` for administrators' tokens, `GET/POST /api/v1/admin/accounts/lookup`.
+* **Account links** (portal): **Admin → a wiki → Account links** lists the wiki's accounts and links them to hosting accounts, one at a time or in bulk (same user name, verified address, both, or a list), always after a preview that the link checks again; unlinking, an optional email to the people linked, and a switch to hosting-only sign-in refused while an administrator is unlinked. New tenant tasks `list_links`, `link_users`, `unlink_user`.
+* Wiki schema 25, portal schema 15.
+
+### Hosting portal fixes
+
+* `MAX_INSTANCES_PER_ACCOUNT=0` means no limit per account (it refused every customer's wiki); creating stays bounded to 20 wikis a day per account, and accounts on probation keep `HOSTING_NEW_ACCOUNT_MAX_INSTANCES`. The dashboard says "No limit".
+* The address at sign-up has one default, not asked (`off`), which is what a new portal stores; the code's fallback said `optional`.
+* The wiki-creation form (and the other "at least 20 characters" fields: sign-up reason, feature and domain requests) counts the text without the spaces at its ends before sending, as the server does; the browser's own `minlength` counted them.
+* Wiki: **Admin → Site settings → Security** shows the sign-in recovery address again (it looked for a tab that no longer exists).
+
+### Permissions
+
+* One authority for who may do what: the permissions (base roles, custom roles, individual permissions). Pages, Kanban boards and canvases share the verbs view, create, edit own, delete own, share own, edit all and delete all (`bananawiki/wiki/permissions.py`, `docs/permissions.md`).
+* Members may create pages and edit and delete their own (`pages.created_by`), keep drafts and upload files, and create, edit, delete and share their own boards and canvases. Editors also edit every page, board and canvas they can open. Category read and write limits apply to members too; unrestricted writing means writing wherever one may read.
+* The defaults of the User and Editor roles can be changed per wiki under **Admin → Roles** (`base_role_permissions` keeps the differences).
+* Boards and canvases have one sharing model (`bananawiki/wiki/sharing.py`, one set of controls `macros/sharing.html`): visibility *Only people it is shared with*, *All members* or *Everyone* (visitors too while the wiki is public), and shares with a person or a role at *Can view* or *Can edit*. New ones are private. Canvas "none" refusals are gone.
+* Retired, translated by schema 23: the Kanban and canvas access, write-access, open-access and visitor settings, the canvas settings page and the Kanban settings dialog, the page builder's access setting (now `page.use_builder`), the chat switches (now the chat permissions with the new `chat.start_dm`), the REST API's second on/off switch, and **Editor access** (merged into **Permissions**).
+* API: `visibility` is `private`, `members` or `public`, share levels `view`/`edit`; boards and canvases carry `can_delete`.
+* A person's own permissions are changes to what their role gives (`user_permissions.granted`), so the rest keeps following the role's defaults or their custom role, which can now be combined with them; their own category list adds to a custom role's limits. Saving the **Permissions** page no longer freezes a copy of the role. Schema 26 keeps every existing account's access exactly as it was.
+* **Asking for edit access** (off by default, **Admin → People → Access requests**): members who can read a page but not edit it ask to edit in its category, or other people's pages; administrators approve or decline from the attention list, the person is told, everything is audited. `GET /api/v1/access-requests`, `POST /api/v1/access-requests/<id>/approve` and `/decline`.
+* Refusals say why: "You can read this page but not edit it." with the reason, on the editor and on new pages, and boards and canvases one may only view name who can share them. An account's admin page shows **What <name> can do**.
+
+### Fewer settings
+
+* The wiki's settings pages have about half the controls (328 to 153 on the rendered pages, permission forms aside). Settings few administrators changed have one value for every wiki (`settings.FIXED`), some with an operator override (`BW_TTS_LANGUAGES`, `BW_AUDIT_RETENTION_DAYS`, `BW_API_RATE_LIMIT`, `BW_API_ADMIN_RATE_LIMIT`, `BW_API_MAX_TOKENS_PER_USER`, `BW_API_WEBHOOK_MAX_FAILURES`); the ones folded into another are translated by schema 24. See UPGRADING.md for the list.
+* Read aloud reads pages in the wiki's languages; BM mode is one switch; chat cleanup is four numbers of days; Site settings have four tabs; the admin menu groups pages as People and permissions, Content, Features, Appearance and System.
+* Invite codes keep their role under open sign-up.
+* Hosting portal: a saved read-aloud GPU address is the GPU switch (schema 16 empties an address whose switch was off).
+* Hosting portal: a wiki's storage limit and largest file are each one choice (platform default, no limit, custom); a refused easter-egg list comes back as typed; an account whose creation date cannot be read is no longer on probation for ever, and new accounts keep a share of at least one wiki on a very small platform.
 
 ### Easter eggs
 
@@ -17,6 +56,24 @@
 ### Hosting portal: Go to
 
 * The portal's top bar has a **Go to** menu listing the platform's main wikis that are online, and BananaChat and BananaGit once an administrator gives their https addresses under **Settings → Other apps**. The BananaGit entry says that signing in works only for accounts an administrator gave access. The menu works without scripts and with the keyboard (Escape closes it), and is hidden when it would be empty.
+* The menu sits in the blue header, just before "Signed in as" (at the same place when signed out), and its list opens under the header, right-aligned to the button, with an opaque background in both themes (it was transparent).
+
+### One Save per page
+
+* Every page that edits settings, a profile or a configuration has one Save, at the top right of its header, which stays in view while the page scrolls (also on phones). The Saves at the bottom of pages, per section and per row are gone from the pages, not hidden: the stylesheet rule that hid a second Save (`.form-save`) and the sticky Save bar at the bottom of editors (`.form-actions--sticky`) are removed. Actions keep their own buttons and are named for what they do.
+* Wiki: **Admin → Appearance** saves the colours, the easter egg switches and the key-sequence eggs with one Save (the switches no longer apply on click; a refused egg list stores nothing and keeps what was typed). Features adding settings there use the new `admin.appearance.save` interceptor. **Admin → Profile fields** saves every field's label and type at once, and an account's profile page its tags with the profile. A canvas's settings save its visibility with its title. The page editor and the proposal editor keep Save and Cancel in their sticky header only. On Admin → Users → one account, the role and username buttons are now **Change role** and **Change username**, and BM mode's switch there applies on change; the quota on a proposal under review is set with **Set quota**.
+* Hosting portal: an instance's sign-in mode, storage limit and upload policy are one form (**Sign-in and limits**), saved together and restarting the wiki once; an empty storage limit there means the platform's default. Each banner is edited on its own page, and a wiki's collaborators are saved together. **Set expiry** and **Take snapshot** are no longer labelled Save.
+
+### Fewer, clearer settings
+
+* Hosting portal: **Settings → Sign-ups** asks who may sign up (*Open*, *Invite code*, *Closed*) and, separately, whether new accounts wait for administrator approval, which works with either of the first two. The old mode *Administrator approval* is gone; platforms that used it get *Open* with approval on (schema 14). Asking for the intended use and deleting denied accounts sit under the approval box, as they apply only with it. `hosting-admin settings signup-mode` gains `--approval on|off`.
+* Hosting portal: **Settings → Wiki features** has one choice per feature (public wikis, page builder) instead of "only administrators" plus "approve automatically". Each mode of the administrators' notifications shows the one number it uses, and the GPU timeout, the verification email interval and the flagged-address rule are under **Advanced**. Apps and their per-account limit sit under platform sign-in, which they need.
+* Wiki: the site icon has no separate on/off switch any more (schema 22); the selected icon is used. The tour settings have their own tab under **Admin → Site settings**, and rarely needed fields (approval time limits, daily upload quotas) are under **Advanced**. Options that apply only with another one show only while it is on: chat cleanup periods, file limits and "may start conversations"; Kanban and canvas roles (hidden under open access); BM mode self-service (hidden while the whole wiki is in BM mode). Read-aloud voice quality set by `BW_TTS_PERFORMANCE_MODE` is shown instead of offered.
+
+### Plainer look
+
+* Hosting portal: the glossy two-tone gradients of the header, title bars, navigation, buttons and badges are flat colours now (the header stays blue), and the text shadows, inner highlights and box shadows are gone except under menus that float. Fields show keyboard focus with the same 2px outline as the wiki instead of a glow.
+* On a page with a Save in its header, that Save is the only primary (yellow) button: Approve, Restore, Start, Download, Add, Create, Back up now and the like are ordinary buttons there. `tests/save_controls.py` checks it on every settings page of the wiki and the portal.
 
 ### Sign-in
 

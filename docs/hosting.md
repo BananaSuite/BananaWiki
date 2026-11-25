@@ -628,7 +628,9 @@ With open sign-up, anyone can create accounts, and every wiki holds a place
 under the platform's wiki limit (platform settings, 50 by default) until it
 expires. These defaults keep a burst of throwaway accounts from locking out
 everyone else; for a public, internet-facing platform, also consider the
-*approval* or *invite* sign-up modes and email verification.
+administrator approval, invite codes and email verification
+(**Admin → Settings → Sign-ups**: approval is a box that combines with *Open*
+and *Invite code*).
 
 * **Sign-ups per address**: the sign-up form creates at most
   `HOSTING_SIGNUPS_PER_IP_PER_DAY` accounts (10) per client address and day,
@@ -642,7 +644,8 @@ everyone else; for a public, internet-facing platform, also consider the
   `HOSTING_NEW_ACCOUNT_SHARE_PERCENT` (50 %) of the platform's wiki limit.
   The rest of the platform stays available to established and approved
   accounts. Approving an account (approval mode) lifts these limits at once.
-* **Wikis per account**: `MAX_INSTANCES_PER_ACCOUNT` counts running, stopped
+* **Wikis per account**: `MAX_INSTANCES_PER_ACCOUNT` (0: no limit per account)
+  counts running, stopped
   and suspended wikis, and applies to transfers as well: a customer at the
   limit cannot accept another wiki. A wiki its owner terminated counts too
   while its data is kept (not while an administrator pauses the countdown),
@@ -652,7 +655,8 @@ everyone else; for a public, internet-facing platform, also consider the
   administration pages or with `instance terminate` on the command line) do
   not count.
 * **Creations per day**: an account may create at most twice as many wikis
-  in 24 hours as it may hold (2 for a new account), whatever became of them,
+  in 24 hours as it may hold (2 for a new account, 20 without a limit per
+  account), whatever became of them,
   including those it gave to another account: each creation orders a
   certificate and builds a tenant.
 * **Expiry**: wikis of customers expire after `INSTANCE_DURATION_DAYS`, so
@@ -840,10 +844,24 @@ platforms.
   new wiki account (the portal user name is suggested; when somebody else
   already has it, the page says so and suggests a free one such as `alex2`),
   or connect an existing wiki account of any name with its password and, when
-  it uses two-step verification, its code (counted like a sign-in's). A wiki
-  account linked to another portal account is never taken over. New accounts
-  follow the wiki's own sign-up policy. Later sign-ins through the portal ask
-  for the wiki's two-step code as well.
+  it uses two-step verification, its code (counted like a sign-in's). The
+  page offers **I already have an account here** first, then **Create a new
+  account**, and keeps what was typed when it refuses. A wiki account linked
+  to another portal account is never taken over. New accounts follow the
+  wiki's own sign-up policy; they have no password of their own until their
+  owner sets one under **Settings → Security → Sign-in methods**. Later
+  sign-ins through the portal do not ask for the wiki's two-step code (the
+  portal asks for its own); sign-ins with the wiki password still do.
+* **Sign-in methods** (**Settings → Security** on the wiki): the portal
+  connection (connected as, since; **Connect**, or **Disconnect**, which needs
+  a password of the account's own and a wiki that also takes passwords), the
+  password (set or change), two-step codes and the email address.
+* **Confirm with BananaWiki Hosting**: wherever the wiki asks for the password
+  before a change, a connected account may sign in again at the portal
+  instead (`prompt=login`, `max_age=0`). The wiki accepts only the connected
+  portal account and an `auth_time` from after the confirmation started, then
+  asks for no password for ten minutes. Accounts without a password see only
+  this option.
 * **Your account → Connected wikis and apps** (`/account/wikis`) lists every wiki and
   every [app](#apps-that-sign-in-with-a-hosting-account) the account signs in to, with the wiki account, the last sign-in and whether the wiki
   asks again: **Sign out** ends its sessions on that wiki, **Remove access**
@@ -893,6 +911,66 @@ platforms.
   it) is recorded in the moderation log at most once a day per account and
   wiki.
 
+### Acting as an account
+
+**Admin → an account → Act as this user** shows the portal as that account
+sees it. It needs your password (or, with two-step sign-in on, a current
+code) and a reason, never applies to administrators, ends by itself after
+`admin_act_minutes` (30; **Settings → Acting as an account**), and every start
+and end is in the moderation log with the reason. `admin_act_notify` (off)
+emails the account when it starts.
+
+With **Administrators may sign in to wikis and apps while acting as an
+account** (`admin_app_signin`, off) the acting administrator can also open the
+account's wikis and apps as it: `/oauth/authorize` issues the code for the
+account after a click (the consent page is skipped and nothing is recorded as
+the account's consent), the moderation log records the sign-in with the
+reason, and the token response and userinfo add
+`"act": {"sub": "<administrator id>", "preferred_username": "<administrator>"}`
+and `"act_expires_at"` (Unix seconds). Such tokens end with the acting, with
+the setting, and when the administrator loses the role; a fresh sign-in
+(`prompt=login`) is answered `error=login_required`, and a wiki never links the
+account with them. Wikis sign in to the account already linked (never linking
+or creating one), show a banner, end the session at `act_expires_at`, name the
+administrator in their audit log and refuse changes to the password, two-step
+codes, email, sign-in methods and deleting the account. Each wiki can refuse
+acting administrators (**Admin → Site settings → Security → Allow hosting
+administrators to sign in as users**, on by default).
+
+### Account links
+
+**Admin → Wikis → a wiki → Account links** connects the wiki's accounts to
+hosting accounts for their owners, through the runtime (tasks run in the
+wiki's container, so each view counts against a per-network limit):
+
+* The page lists the wiki's accounts with their link, role, state, address and
+  whether they have a password of their own; **Unlink** drops a link on both
+  sides and ends the sessions that came through it.
+* **Link one account** (a wiki account and a hosting user name, id or verified
+  address) or **Link many accounts**: same user name (any case), same email
+  address (verified hosting addresses only; wikis do not verify their
+  members' addresses), both, or a list of `wiki_username,hosting_username`
+  (or `…,hosting_account_id`) lines, at most 500.
+* A **preview** comes first: *will link*, *already linked*, *conflict* (the
+  hosting account is linked to another wiki account, the wiki account to
+  another hosting account, several candidates, a suspended or pending hosting
+  account), *not found*, *skipped* (administrators and owners unless
+  **Include administrators and owners** is ticked, suspended or unapproved
+  wiki accounts). **Link N accounts** links only the *will link* rows of that
+  preview: it is computed again, and when anything changed in between the
+  page shows the new preview and links nothing.
+* A link is written as a person's own: the wiki's `platform_oauth_links` row
+  (by the wiki, which refuses an account linked meanwhile) and the portal's
+  `hosting_oauth_account_links` row. The moderation log records who, the rule
+  and the accounts (`oauth.admin_linked`, `oauth.admin_unlinked`, and
+  `oauth.linked` on each account); the wiki's audit log records it too. The
+  person's first sign-in still asks for their consent. **Email the people who
+  get a link** sends "Your account is now connected to your BananaWiki
+  Hosting account" to hosting accounts with an address.
+* **Switch to hosting-only sign-in** sets the wiki's sign-in mode to
+  `platform`, refused while an active administrator or owner of the wiki has
+  no link.
+
 ### How members sign in to a wiki
 
 A wiki signs its members in with their wiki accounts, with hosting accounts, or
@@ -908,7 +986,7 @@ provider.
 | --- | --- |
 | `local` | Wiki accounts only. |
 | `both` | Wiki accounts and "Sign in with the hosting portal". |
-| `platform` | Hosting accounts only. New members come in through the connect page, which applies the wiki's sign-up policy. |
+| `platform` | Hosting accounts only, plus "Create an account" while the portal takes new accounts (see [Sign-up from an app](#sign-up-from-an-app)). New members come in through the connect page, which applies the wiki's sign-up policy. |
 
 * Hosting accounts only is refused while nobody has linked a wiki account to a
   hosting account on that wiki (`--force` on the command line skips this): the
@@ -920,6 +998,42 @@ provider.
 * Wiki accounts are never linked to a hosting account by name or email: only
   by the account id, after the person proves the wiki account with its
   password (and two-step code).
+
+### Sign-up from an app
+
+A5 of the BananaSuite sign-in contract: someone without an account signs up
+from a hosted wiki's or an app's sign-in page, gets a hosting account (which
+works on the portal, every wiki and every app), and lands back in the wiki or
+app, signed in.
+
+* **Provider**: `/oauth/authorize` takes `prompt=create` (OpenID "Initiating
+  User Registration"). Without a portal session it shows the portal's own
+  sign-up form (`/signup`, every rule unchanged: sign-up mode, invite code,
+  address off/optional/required, intended use when approval is on, user name
+  rules, sign-ups per address and day, terms, bot protection, the first
+  account) with one line naming the wiki or app, then continues the same
+  request (consent as usual). Closed sign-up shows the sign-in form with
+  "Sign-ups are closed." With a portal session `prompt=create` changes nothing.
+* A new account that must confirm its address or wait for approval gets those
+  pages, with "When that is done, go back to *wiki or app*": the wiki's
+  `/platform-oauth/login`, an app's home page (or the origin of its first
+  redirect URI), always from the registration, never from the request. An
+  address confirmed in the same browser within ten minutes continues the
+  request.
+* **Metadata**: `/.well-known/oauth-authorization-server` lists `create` in
+  `prompt_values_supported` while sign-up is not closed and says
+  `"signup": "open" | "invite" | "closed"` (approval does not change it). It is
+  cacheable for five minutes.
+* **Clients** (wikis in `platform` mode, BananaChat in `hosting` mode): the
+  sign-in page's "Create an account" starts authorize with `prompt=create`,
+  shown only while the metadata says `open` or `invite` (asked at most every
+  five minutes; no answer hides it). In `both` mode the client's own sign-up
+  stays and nothing is added. The state remembers the flow was a sign-up: on
+  the way back an unknown `sub` gets its local account at once, named like
+  the hosting account, under the client's own sign-up policy (closed, invite,
+  approval). When that is not possible (the name is taken, an invite is
+  needed) the first sign-in's create form takes over with the reason. Never
+  while acting (`act`).
 
 ### Apps that sign in with a hosting account
 
@@ -947,8 +1061,18 @@ register theirs there too, or with `bananawiki hosting-admin app create`.
   pending apps are one of the administrators' "needs your attention" queues.
 * **Protocol**: authorization code with PKCE (S256, required), client
   authentication with HTTP Basic (or form fields), bearer access tokens that
-  live one hour, no refresh tokens. Endpoints and metadata are at
-  `/.well-known/oauth-authorization-server`. Scopes: `profile` (always; the
+  live one hour (less when issued to an acting administrator), no refresh
+  tokens. Endpoints and metadata are at
+  `/.well-known/oauth-authorization-server` (`prompt_values_supported`,
+  `claims_supported`, `signup`). `prompt=create` opens the portal's sign-up
+  first ([Sign-up from an app](#sign-up-from-an-app)). `prompt=login` (also `prompt=login consent`) shows the
+  portal's sign-in again, password then two-step code, even with a portal
+  session; `max_age=N` (0 to 86400 seconds) does the same when the last
+  sign-in is older; any other `max_age` is answered 400. The token response
+  and `/oauth/userinfo` carry `auth_time` (Unix seconds of the portal sign-in
+  behind the code) and `amr` (`["pwd"]`, or `["pwd", "otp"]` after a two-step
+  code), and `act`/`act_expires_at` for an
+  [acting administrator](#acting-as-an-account). Wikis get the same. Scopes: `profile` (always; the
   account id as `sub`, and the username) and `email` (asked for, and allowed
   by the person: the verified address, only when the account has one and it
   is not flagged). Apps identify people by `sub` only. They are never told
@@ -969,12 +1093,14 @@ register theirs there too, or with `bananawiki hosting-admin app create`.
 
 `/admin` on the portal (platform administrators):
 
-* accounts: approve, deny, suspend, delete, impersonate, promote, flag email,
+* accounts: approve, deny, suspend, delete, act as the account (with a reason,
+  [time-limited](#acting-as-an-account)), promote, flag email,
   remove the email address (while addresses are not required);
 * wikis: every lifecycle action above plus suspend (the expiry clock stops),
   extend, set storage limits and upload policy, move between owners,
   duplicate, restart, bulk actions, import an archive (chunked upload),
-  quarantine a wiki's plugins and restore plugin snapshots, switch Easy mode
+  quarantine a wiki's plugins and restore plugin snapshots, connect its accounts
+  to hosting accounts ([Account links](#account-links)), switch Easy mode
   (BM mode) in the **Lifecycle** card. **Name and owner → Move now** moves a
   wiki at once, without the recipient accepting; owners offer transfers from
   **Collaborators** instead. **Allow** on a feature someone requested
@@ -1141,6 +1267,16 @@ SHA-256) carry scopes:
 | `instances:read` | `GET /instances`, `GET /instances/<id>` |
 | `instances:manage` | `POST /instances/<id>/pause`, `POST /instances/<id>/resume` |
 | `admin:read` | `GET /admin/pending-accounts`, `GET /admin/instances` (administrators) |
+| `accounts:lookup` | `GET /admin/accounts/lookup?username=` or `?email=`, `POST /admin/accounts/lookup` (administrators; for the linking tools of apps) |
+
+`accounts:lookup` answers `{"accounts": [{"sub", "username", "email",
+"email_verified", "status"}], "not_found": [...]}`: user names match in any
+case, addresses only when verified (`email` is given only then), `status` is
+`active`, `suspended` or `pending`; deleted and denied accounts are never
+found. `POST` takes `{"usernames": [...], "emails": [...]}`, at most 500
+together. Each lookup is in the moderation log (`api.accounts.lookup`: the
+token and how many names, addresses and accounts). Like every call it counts
+against the token's 60 requests a minute.
 
 An account holds at most 10 live tokens and creates at most 20 in 24 hours,
 revoked ones included; the rows of tokens revoked or expired more than 90

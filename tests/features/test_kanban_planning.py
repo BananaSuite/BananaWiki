@@ -12,7 +12,8 @@ from bananawiki.wiki import registry
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.kanban import fields, history, schema
 
-from .test_kanban import as_client, board_id_from, columns, new_ticket, set_settings
+from .access_support import members_see
+from .test_kanban import as_client, board_id_from, columns, new_ticket
 
 
 @pytest.fixture
@@ -57,7 +58,7 @@ def test_wip_limit_is_saved_validated_and_synced(admin_client, board, db):
 
 
 def test_wip_limit_needs_write_access(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+    members_see(db)
     reader = as_client(app, login, make_user("reader"))
     column_id = columns(reader, board)[0]["id"]
     assert reader.put(f"/api/kanban/columns/{column_id}", json={"wip_limit": 2}).status_code == 403
@@ -127,7 +128,7 @@ def test_checklist_changes_reach_other_viewers(admin_client, board):
 
 
 def test_checklist_permissions_and_idor(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+    members_see(db)
     reader = as_client(app, login, make_user("reader"))
     column_id = columns(admin_client, board)[0]["id"]
     ticket = new_ticket(admin_client, column_id)
@@ -222,7 +223,7 @@ def test_export_import_keeps_limits_and_checklists(admin_client, board, db):
 
 
 def test_my_tickets_lists_assigned_tickets_on_visible_boards(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+    members_see(db)
     bob_user = make_user("bob")
     bob = as_client(app, login, bob_user)
     cols = columns(admin_client, board)

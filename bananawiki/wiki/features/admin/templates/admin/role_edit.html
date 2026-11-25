@@ -6,9 +6,10 @@
 <nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
   <li><a href="{{ url_for('admin.roles') }}">{{ t('admin.roles.title') }}</a></li><li>{{ role.name if role else t('admin.roles.create') }}</li>
 </ol></nav>
-<header class="page-header"><h1>{{ role.name if role else t('admin.roles.create') }}</h1></header>
+<header class="page-header page-header--save"><h1>{{ role.name if role else t('admin.roles.create') }}</h1>
+  {{- forms.page_save('role-form', t('common.save') if role else t('common.create')) }}</header>
 
-<form method="post" action="{{ url_for('admin.edit_role', role_id=role.id) if role else url_for('admin.create_role') }}" class="form section-stack">
+<form method="post" action="{{ url_for('admin.edit_role', role_id=role.id) if role else url_for('admin.create_role') }}" class="form section-stack" id="role-form">
   {{ forms.csrf() }}
   <section class="card form">
     {{ forms.field('name', t('common.name'), values.name, required=true, attrs={'maxlength': 100}) }}
@@ -31,14 +32,13 @@
       {{ category_list('read_category_ids', values.read_ids, all_categories) }}
     </div>
   </fieldset>
-  <fieldset data-editor-only{% if values.base_role != 'editor' %} hidden{% endif %}>
+  <fieldset>
     <legend>{{ t('admin.permissions.write_access') }}</legend>
     {{ forms.checkbox('write_restricted', t('admin.permissions.write_restricted'), checked=values.write_restricted, hint=t('admin.roles.write_implies_read')) }}
     <div data-reveal-for="write_restricted" data-reveal-values="1"{% if not values.write_restricted %} hidden{% endif %}>
       {{ category_list('write_category_ids', values.write_ids, all_categories) }}
     </div>
   </fieldset>
-  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') if role else t('common.create') }}</button></div>
 </form>
 
 {% if role %}

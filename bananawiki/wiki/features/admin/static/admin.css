@@ -16,14 +16,13 @@
 .admin-settings { gap: 1.1rem; }
 
 .admin-stats { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 1rem; }
-.admin-stats--inline { gap: 1.5rem; display: flex; flex-wrap: wrap; }
 .admin-stats a.stat { color: inherit; }
-/* Dashboard counters share one strip with individual, focusable links. */
-.admin-stats--summary { display: flex; flex-wrap: wrap; gap: 0; margin: 1.25rem 0 .5rem; background: var(--surface);
-  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.admin-stats--summary > .stat { flex: 1 1 120px; min-width: 0; padding: .8rem 1rem; box-shadow: 1px 1px 0 var(--border); }
-.admin-stats--summary > a.stat:hover, .admin-stats--summary > a.stat:focus-visible { background: var(--surface-2); text-decoration: none; }
-.admin-stats--summary .stat__value { font-size: 1.35rem; }
+/* Dashboard counters: one line of figures ("12 users · 3 online"), the first three are links. */
+.admin-stats--summary, .admin-stats--inline { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; margin: 1rem 0 .75rem;
+  font-size: var(--font-size-ui); }
+.admin-stats--summary > .stat, .admin-stats--inline > .stat { display: flex; align-items: baseline; gap: .3rem; }
+.admin-stats--summary .stat__value, .admin-stats--inline .stat__value { font-size: inherit; }
+.admin-stats--summary > a.stat:hover .stat__label, .admin-stats--summary > a.stat:focus-visible .stat__label { text-decoration: underline; }
 
 /* Daily requests: one bar per day, anchored to the baseline. */
 .traffic-chart { display: flex; align-items: flex-end; gap: 2px; height: 140px; padding-top: .5rem;

@@ -3,8 +3,8 @@
 {% block title %}{{ t('tts.admin.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('tts.css', blueprint='tts') }}">{% endblock %}
 {% block admin_content %}
-<header class="page-header">
-  <h1>{{ t('tts.admin.title') }}</h1>
+<header class="page-header page-header--save">
+  <h1>{{ t('tts.admin.title') }}</h1>{{ forms.page_save('tts-settings-form') }}
 </header>
 
 {% if system.host_disabled %}
@@ -27,11 +27,10 @@
 <section class="card">
   <h2>{{ t('tts.admin.actions') }}</h2>
   <div class="btn-row">
-    {{ forms.post_button(url_for('tts.admin_backfill'), tn('tts.admin.backfill', stats.missing), cls='btn btn--primary') }}
+    {{ forms.post_button(url_for('tts.admin_backfill'), tn('tts.admin.backfill', stats.missing), cls='btn') }}
     {{ forms.post_button(url_for('tts.admin_retry_failed'), t('tts.admin.retry_failed'), cls='btn', attrs={} if stats.counts.failed else {'disabled': 'disabled'}) }}
     {{ forms.post_button(url_for('tts.admin_clear'), t('tts.admin.clear'), cls='btn btn--danger', confirm=t('tts.admin.clear_confirm'), attrs={} if stats.bytes else {'disabled': 'disabled'}) }}
   </div>
-  <p class="hint">{{ t('tts.admin.backfill_hint') }}</p>
 </section>
 
 <section class="card">
@@ -79,7 +78,7 @@
 
 <section class="card">
   <h2>{{ t('tts.admin.settings') }}</h2>
-  <form class="form" method="post" action="{{ url_for('tts.admin_settings') }}">
+  <form class="form" method="post" action="{{ url_for('tts.admin_settings') }}" id="tts-settings-form">
     {{ forms.csrf() }}
     {{ forms.checkbox('tts_page_panel_enabled', t('tts.admin.panel'), values.tts_page_panel_enabled, t('tts.admin.panel_hint')) }}
     {{ forms.checkbox('tts_public_access_enabled', t('tts.admin.public'), values.tts_public_access_enabled, t('tts.admin.public_hint')) }}
@@ -88,32 +87,20 @@
       <label class="check"><input type="radio" name="generation_mode" value="on_demand"{% if not values.tts_auto_generate_enabled %} checked{% endif %}><span>{{ t('tts.admin.mode_on_demand') }}<small>{{ t('tts.admin.mode_on_demand_hint') }}</small></span></label>
       <label class="check"><input type="radio" name="generation_mode" value="auto"{% if values.tts_auto_generate_enabled %} checked{% endif %}><span>{{ t('tts.admin.mode_auto') }}<small>{{ t('tts.admin.mode_auto_hint') }}</small></span></label>
     </fieldset>
-    {{ forms.select('tts_performance_mode', t('tts.admin.performance'), [('auto', t('tts.admin.perf.auto')), ('balanced', t('tts.admin.perf.balanced')), ('fast', t('tts.admin.perf.fast'))], values.tts_performance_mode or 'auto', t('tts.admin.performance_hint')) }}
-    <details class="disclosure field">
-      <summary>{{ t('tts.admin.languages') }} · {{ enabled|length }}</summary>
-      <p class="hint">{{ t('tts.admin.languages_hint') }}</p>
-      <div class="tts-languages">
-        {% for code, label in languages %}
-        <label class="check"><input type="checkbox" name="languages" value="{{ code }}"{% if code in enabled %} checked{% endif %}><span>{{ label }}</span></label>
-        {% endfor %}
-      </div>
-    </details>
+    <p class="hint">{{ t('tts.admin.languages_now', languages=enabled|join(', ')) }}</p>
     {% if system.gpu_managed %}
     <p class="hint">{{ t('tts.admin.gpu_managed') }}</p>
     {% else %}
-    <details class="disclosure field"{% if values.tts_gpu_enabled %} open{% endif %}>
+    <details class="disclosure field"{% if values.tts_gpu_url %} open{% endif %}>
       <summary>{{ t('tts.admin.gpu') }}</summary>
       <p class="hint">{{ t('tts.admin.gpu_hint') }}</p>
       {% if system.gpu_from_env %}<p class="hint">{{ t('tts.admin.gpu_env') }}</p>{% endif %}
       {% if system.gpu_env_token_only %}<p class="hint">{{ t('tts.admin.gpu_env_token_only') }}</p>{% endif %}
-      {{ forms.checkbox('tts_gpu_enabled', t('tts.admin.gpu_enabled'), values.tts_gpu_enabled) }}
       {{ forms.field('tts_gpu_url', t('tts.admin.gpu_url'), values.tts_gpu_url, type='url', hint=t('tts.admin.gpu_url_hint'), attrs={'placeholder': 'http://192.168.1.50:8787'}) }}
       {{ forms.field('tts_gpu_auth_token', t('tts.admin.gpu_token'), '', type='password', hint=t('tts.admin.gpu_token_set') if values.tts_gpu_auth_token else t('tts.admin.gpu_token_hint'), attrs={'autocomplete': 'off'}) }}
       {% if values.tts_gpu_auth_token %}{{ forms.checkbox('clear_gpu_token', t('tts.admin.gpu_token_clear')) }}{% endif %}
-      {{ forms.field('tts_gpu_timeout', t('tts.admin.gpu_timeout'), values.tts_gpu_timeout or 120, type='number', attrs={'min': 1, 'max': 3600}) }}
     </details>
     {% endif %}
-    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('common.save') }}</button></div>
   </form>
   {% if system.backend == 'remote-gpu' %}
   {{ forms.post_button(url_for('tts.admin_gpu_test'), t('tts.admin.gpu_test'), cls='btn btn--small') }}

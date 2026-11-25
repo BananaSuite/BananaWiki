@@ -31,7 +31,7 @@
 </details>
 <details class="card" id="signup-access" data-remember><summary>{{ t('hosting.admin.invites') }}</summary>
   {#- The mode and the approval box are changed together under Settings → Sign-ups. -#}
-  <p class="small">{{ t('hosting.admin.signup_current', mode=t('hosting.signup_mode.' ~ signup_mode)) }}{% if signup_approval and signup_mode != 'approval' %} · {{ t('hosting.admin.signup_with_approval') }}{% endif %}
+  <p class="small">{{ t('hosting.admin.signup_current', mode=t('hosting.signup_mode.' ~ signup_mode)) }}{% if signup_approval and signup_mode != 'closed' %} · {{ t('hosting.admin.signup_with_approval') }}{% endif %}
     · <a href="{{ url_for('admin.settings_page', open='save_signups') }}#save_signups">{{ t('hosting.admin.signup_change') }}</a></p>
   <form method="post" action="{{ url_for('admin.create_invite') }}" class="form">{{ ui.csrf() }}
     <div class="form-grid">{{ ui.field('custom_code', t('hosting.admin.invite_code'), attrs={'maxlength': 32}) }}

@@ -49,8 +49,8 @@ def test_operator_maintenance_preserves_the_api_error_contract(app_factory, tmp_
 # Rate limit headers
 
 
-def test_rate_limit_headers(api_app, client, db, people):
-    db.execute("UPDATE site_settings SET api_service_rate_limit = 3")
+def test_rate_limit_headers(api_app, client, db, people, monkeypatch):
+    monkeypatch.setenv("BW_API_RATE_LIMIT", "3")
     token = issue(api_app, people["reader"])
     first = call(client, "GET", "/pages", token)
     assert first.headers["X-RateLimit-Limit"] == "3" and first.headers["X-RateLimit-Remaining"] == "2"
@@ -87,6 +87,7 @@ def test_idempotent_post_is_replayed_not_repeated(api_app, client, db, people):
 
 
 def test_idempotency_keeps_errors_but_not_rate_limits(api_app, client, db, people):
+    db.execute("INSERT INTO base_role_permissions (role, permission_key, granted) VALUES ('user', 'page.create', 0)")
     token = issue(api_app, people["reader"])
     refused = call(client, "POST", "/pages", token, json={"title": "Nope"}, headers={"Idempotency-Key": "k1"})
     assert refused.status_code == 403

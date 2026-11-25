@@ -11,7 +11,7 @@
   <div><dt>{{ t('hosting.dashboard.stat.' ~ key ~ ('_one' if stats[key] == 1 else '_other')) }}</dt><dd>{{ stats[key] }}</dd></div>
   {% endfor %}
   <div><dt>{{ t('hosting.dashboard.storage_label') }}</dt><dd>{{ stats.storage_mb|mb }} MB</dd></div>
-  <div><dt>{{ t('hosting.dashboard.limit_label') }}</dt><dd>{{ max_instances }}</dd></div>
+  <div><dt>{{ t('hosting.dashboard.limit_label') }}</dt><dd>{{ max_instances if max_instances is not none else t('hosting.dashboard.no_limit') }}</dd></div>
 </dl>
 {% if items %}
 {% set bulk = items|selectattr('role', 'equalto', 'owner')|list|length > 1 %}

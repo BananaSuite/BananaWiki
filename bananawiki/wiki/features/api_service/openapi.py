@@ -138,11 +138,13 @@ ENDPOINTS: tuple[Endpoint, ...] = (
                      "total": INTEGER}),
     Endpoint("PUT", "/kanban/boards/{board_id}", "Change a board's title, description or visibility", "kanban",
              True, group="kanban", feature="kanban",
-             body={"title": STRING, "description": STRING, "visibility": {"enum": ["private", "shared", "public"]}},
+             body={"title": STRING, "description": STRING, "visibility": {"enum": ["private", "members", "public"]}},
              responses=(200, 400, 403, 404), result={"board": _ref("Board")}),
-    Endpoint("DELETE", "/kanban/boards/{board_id}", "Delete a board (creator and administrators)", "kanban", True,
+    Endpoint("DELETE", "/kanban/boards/{board_id}", "Delete a board (its creator with kanban.delete_own, "
+             "kanban.delete_all, administrators)", "kanban", True,
              group="kanban", feature="kanban", responses=(200, 403, 404), result=_DELETED),
-    Endpoint("POST", "/kanban/boards/{board_id}/archive", "Archive a board (owner; it becomes read-only)", "kanban",
+    Endpoint("POST", "/kanban/boards/{board_id}/archive", "Archive a board (whoever may delete it; it becomes "
+             "read-only)", "kanban",
              True, group="kanban", feature="kanban", responses=(200, 403, 404), result={"board": _ref("Board")}),
     Endpoint("POST", "/kanban/boards/{board_id}/restore", "Restore an archived board (owner)", "kanban", True,
              group="kanban", feature="kanban", responses=(200, 403, 404), result={"board": _ref("Board")}),
@@ -233,7 +235,7 @@ ENDPOINTS: tuple[Endpoint, ...] = (
              responses=(200, 404), result={"canvas": _ref("Canvas"), "data": _DOCUMENT}),
     Endpoint("PUT", "/canvas/{slug}", "Change a canvas's title, description or visibility", "canvas", True,
              group="canvas", feature="canvas",
-             body={"title": STRING, "description": STRING, "visibility": {"enum": ["private", "shared", "public"]}},
+             body={"title": STRING, "description": STRING, "visibility": {"enum": ["private", "members", "public"]}},
              responses=(200, 400, 403, 404), result={"canvas": _ref("Canvas")}),
     Endpoint("PUT", "/canvas/{slug}/document", "Replace a canvas's document", "canvas", True, group="canvas",
              feature="canvas", body={"data": _DOCUMENT, "expected_version": INTEGER}, required=("data",),
@@ -266,6 +268,15 @@ ENDPOINTS: tuple[Endpoint, ...] = (
              responses=(200, 400, 403, 404), result={"user": _ref("User"), "api_tokens_revoked": INTEGER}),
     Endpoint("DELETE", "/users/{user_id}", "Delete an account (administrators)", "users", True, group="users",
              responses=(200, 400, 403, 404), result={"deleted": BOOLEAN, "id": STRING}),
+    Endpoint("GET", "/access-requests", "Requests for edit access (administrators)", "users", group="users",
+             params=("status",), paginated=True, responses=(200, 400),
+             result={"access_requests": _list(_ref("AccessRequest"))}),
+    Endpoint("POST", "/access-requests/{request_id}/approve", "Approve a request for edit access", "users", True,
+             group="users", responses=(200, 403, 404, 409),
+             result={"access_request": _ref("AccessRequest"),
+                     "granted": {"type": "object", "properties": {"permissions": STRINGS, "write_categories": IDS}}}),
+    Endpoint("POST", "/access-requests/{request_id}/decline", "Decline a request for edit access", "users", True,
+             group="users", responses=(200, 403, 404, 409), result={"access_request": _ref("AccessRequest")}),
     # Settings
     Endpoint("GET", "/settings", "Site settings (administrators)", "settings", group="settings",
              result={"settings": OBJECT}),
@@ -356,6 +367,12 @@ SCHEMAS: dict[str, Schema] = {
         "id": STRING, "username": STRING, "role": STRING, "suspended": BOOLEAN, "approval_status": STRING,
         "api_access_enabled": BOOLEAN, "userbot_enabled": BOOLEAN, "created_at": DATETIME,
         "last_login_at": DATETIME}},
+    "AccessRequest": {"type": "object", "properties": {
+        "id": INTEGER, "user_id": STRING, "username": STRING, "scope": {"enum": ["wiki", "category"]},
+        "category_id": NULLABLE_ID, "category_name": {"type": ["string", "null"]},
+        "page_slug": {"type": ["string", "null"]}, "message": STRING,
+        "status": {"enum": ["pending", "approved", "declined"]}, "created_at": DATETIME,
+        "decided_by": {"type": ["string", "null"]}, "decided_at": DATETIME}},
     "Token": {"type": "object", "properties": {
         "id": INTEGER, "name": STRING, "permissions": _ref("Grant"), "last_used_at": DATETIME,
         "expires_at": DATETIME, "active": BOOLEAN, "created_at": DATETIME, "user_id": STRING, "username": STRING}},
@@ -365,7 +382,7 @@ SCHEMAS: dict[str, Schema] = {
     "Board": {"type": "object", "properties": {
         "id": INTEGER, "title": STRING, "description": STRING, "visibility": STRING, "created_by": STRING,
         "creator_username": STRING, "created_at": DATETIME, "archived_at": DATETIME, "can_write": BOOLEAN,
-        "is_owner": BOOLEAN,
+        "is_owner": BOOLEAN, "can_delete": BOOLEAN,
         "columns": _list(_ref("Column"))}},
     "Column": {"type": "object", "properties": {"id": INTEGER, "title": STRING, "wip_limit": NULLABLE_ID,
                                                 "done": BOOLEAN, "tickets": IDS}},
@@ -388,7 +405,7 @@ SCHEMAS: dict[str, Schema] = {
         "id": INTEGER, "slug": STRING, "title": STRING, "description": STRING, "visibility": STRING,
         "is_archived": BOOLEAN, "version": INTEGER, "creator_id": {"type": ["string", "null"]},
         "creator_username": STRING, "created_at": DATETIME, "updated_at": DATETIME, "can_edit": BOOLEAN,
-        "is_owner": BOOLEAN}},
+        "is_owner": BOOLEAN, "can_delete": BOOLEAN}},
     "Webhook": {"type": "object", "properties": {
         "id": INTEGER, "url": STRING, "description": STRING, "events": STRINGS, "active": BOOLEAN,
         "allow_private_network": BOOLEAN, "consecutive_failures": INTEGER, "failing_since": DATETIME,
@@ -408,10 +425,11 @@ _STATUS_TEXT = {200: "OK", 201: "Created", 202: "Accepted (scheduled)", 400: "In
                 401: "Missing or invalid token", 403: "Not allowed", 404: "Not found", 409: "Conflict",
                 412: "If-Match does not match the current version", 413: "Body too large",
                 422: "Idempotency-Key reused with a different request", 429: "Rate limited",
-                500: "Internal error", 503: "API disabled, maintenance or storage unavailable"}
+                500: "Internal error", 503: "Maintenance or storage unavailable"}
 _QUERY_TYPES = {"archived": BOOLEAN, "priority": {"enum": ["low", "medium", "high", "critical"]},
                 "due": {"enum": ["overdue", "soon", "week", "none"]}, "limit": INTEGER, "offset": INTEGER, "target_id": INTEGER, "before_days": INTEGER,
-                "titles_only": BOOLEAN, "page_action": {"enum": ["uncategorize", "move", "delete"]}}
+                "titles_only": BOOLEAN, "page_action": {"enum": ["uncategorize", "move", "delete"]},
+                "status": {"enum": ["pending", "approved", "declined", "all"]}}
 _STRING_IDS = frozenset({"user_id", "slug"})
 _RATE_HEADERS = {
     "X-RateLimit-Limit": {"$ref": "#/components/headers/RateLimitLimit"},

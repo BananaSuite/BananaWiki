@@ -11,6 +11,7 @@ from bananawiki.wiki.features.page_governance import protection, quota, reservat
 from bananawiki.wiki.features.page_governance.errors import GovernanceError
 from bananawiki.wiki.features.pages import service as pages
 
+from .access_support import only_stored_permissions
 from .governance_support import as_user, build_app, set_settings
 
 
@@ -251,29 +252,23 @@ def test_header_offers_no_lock_over_another_editors_lock(app, people, page):
 # Quota requests
 
 
-def test_quota_requests_auto_approve_cooldown_and_review(app, ctx, db, people):
-    set_settings(app, reservation_quota_auto_approve_max=8, quota_request_cooldown_hours=2)
+def test_quota_requests_are_reviewed(app, ctx, db, people):
+    """Every request waits for a reviewer and none waits between requests (both fixed in version 24)."""
     as_user(None)
     user_id = people["ed1"]["id"]
     with pytest.raises(GovernanceError):
-        quota.create_request(user_id, 7, "")
-    row = quota.create_request(user_id, 7, "busy month")
-    assert row["status"] == "approved" and row["review_source"] == "automatic"
-    assert quota.effective(user_id) == 7
-    with pytest.raises(GovernanceError) as err:
-        quota.create_request(user_id, 20, "more")
-    assert err.value.key == "page_governance.quota.error.cooldown"
-    db.execute("UPDATE users SET quota_request_cooldown_until = NULL WHERE id = ?", (user_id,))
-    pending = quota.create_request(user_id, 20, "more")
+        quota.create_request(user_id, 7, "")  # a reason is needed
+    pending = quota.create_request(user_id, 7, "busy month")
     assert pending["status"] == "pending"
     with pytest.raises(GovernanceError):
-        quota.create_request(user_id, 30, "again")
+        quota.create_request(user_id, 30, "again")  # one request at a time
     with pytest.raises(GovernanceError):
         quota.cancel(pending["id"], people["ed2"]["id"])  # not theirs
     quota.review(pending["id"], people["admin"]["id"], approve=True)
-    assert quota.effective(user_id) == 20
+    assert quota.effective(user_id) == 7
     with pytest.raises(GovernanceError):
         quota.review(pending["id"], people["admin"]["id"], approve=False)
+    assert quota.create_request(user_id, 20, "more")["status"] == "pending"  # no wait after a decision
 
 
 # Routes
@@ -320,6 +315,7 @@ def test_routes_refuse_readers_and_hidden_pages(client, login, people, page, db)
     db.execute("UPDATE pages SET is_deindexed = 1 WHERE id = ?", (page["id"],))
     db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
                (people["ed1"]["id"],))
+    only_stored_permissions(db, people["ed1"]["id"])
     assert client.post(f"/page/{page['slug']}/protection", data={"action": "protect"}).status_code == 404
 
 

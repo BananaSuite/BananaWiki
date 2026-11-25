@@ -115,9 +115,8 @@ def test_capacity_rechecks_current_policy_after_slow_preflight(tmp_path, monkeyp
     assert _rows(portal) == []
 
 
-def test_operator_only_creation_allows_staged_transfer_of_existing_wiki(tmp_path):
-    portal, clients, owners = _limited_portal(tmp_path, account_limit=0, platform_limit=1)
-    assert _create(clients[0], "capacity-self-service").status_code == 400
+def test_operator_on_a_full_platform_allows_staged_transfer_of_existing_wiki(tmp_path):
+    portal, clients, owners = _limited_portal(tmp_path, account_limit=1, platform_limit=1)
     with portal.app_context(), connection_scope():
         administrator = accounts.create("capacity-operator", PASSWORD, is_admin=True)
     operator = portal.test_client()
@@ -125,6 +124,7 @@ def test_operator_only_creation_allows_staged_transfer_of_existing_wiki(tmp_path
         "username": administrator["username"], "password": PASSWORD,
     }).status_code == 302
     assert _create(operator, "capacity-staged").status_code == 200
+    assert _create(clients[0], "capacity-self-service").status_code == 400  # the platform is full
     with portal.app_context(), connection_scope():
         inst = instances.by_slug("capacity-staged", "hosting")
     assert operator.post(f"/instances/{inst['id']}/stop").status_code == 302
@@ -179,3 +179,28 @@ def test_failed_cleanup_keeps_name_port_and_capacity_until_termination(tmp_path,
     assert "capacity-leftover" not in runtime.tenants
     monkeypatch.setattr(runtime, "provision", provision)
     assert _create(clients[1], "capacity-after-cleanup").status_code == 200
+
+
+def test_no_limit_per_account_when_it_is_zero(tmp_path):
+    """MAX_INSTANCES_PER_ACCOUNT=0 means no limit per account (it used to refuse every customer's wiki)."""
+    portal, clients, owners = _limited_portal(tmp_path, account_limit=0, platform_limit=100)
+    with portal.test_request_context("/"), connection_scope():
+        owner = accounts.get(owners[0]["id"])
+        assert instances.account_limit(owner) is None
+        for number in range(6):  # more than the default of 5
+            instances.create(owner, f"capacity-free-{number}")
+    assert _create(clients[0], "capacity-free-last").status_code == 200
+    with portal.app_context(), connection_scope():
+        # Creating stays bounded per day.
+        assert instances.UNLIMITED_CREATIONS_PER_DAY >= 7
+    page = clients[0].get("/dashboard").get_data(as_text=True)
+    assert "No limit" in page and "None" not in page
+
+
+def test_zero_keeps_the_limit_of_new_accounts(tmp_path, monkeypatch):
+    portal = build_portal(tmp_path, environ=portal_environ(
+        tmp_path, MAX_INSTANCES_PER_ACCOUNT="0", HOSTING_NEW_ACCOUNT_MAX_INSTANCES="1"))
+    with portal.app_context(), connection_scope():
+        account = accounts.create("capacity-newcomer", PASSWORD)
+        monkeypatch.setattr(instances, "on_probation", lambda _account: True)
+        assert instances.account_limit(account) == 1

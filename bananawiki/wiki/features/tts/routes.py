@@ -234,10 +234,8 @@ def admin():
         status_filter=status_filter,
         system=_system_status(),
         values=settings.load(),
-        enabled=set(options.enabled_languages()),
-        languages=text.language_choices(text.SUPPORTED_LANGUAGES),
+        enabled=[label for _code, label in text.language_choices(options.enabled_languages())],
         labels={code: text.language_label(code) for code in {row["language"] for row in rows}},
-        performance_modes=options.PERFORMANCE_MODES,
     )
 
 
@@ -269,11 +267,7 @@ def admin_settings():
         "tts_page_panel_enabled": 1 if form.get("tts_page_panel_enabled") else 0,
         "tts_public_access_enabled": 1 if form.get("tts_public_access_enabled") else 0,
         "tts_auto_generate_enabled": 1 if form.get("generation_mode") == "auto" else 0,
-        "tts_enabled_languages": text.serialize_enabled_languages(form.getlist("languages"))
-        or ",".join(text.DEFAULT_ENABLED_LANGUAGES),
     }
-    mode = form.get("tts_performance_mode", "auto")
-    values["tts_performance_mode"] = mode if mode in options.PERFORMANCE_MODES else "auto"
     if not options.config().gpu_managed_by_host:
         url = form.get("tts_gpu_url", "").strip().rstrip("/")
         if url:
@@ -281,12 +275,7 @@ def admin_settings():
             if problem:
                 auth.flash_t("tts.admin.gpu_url_invalid", "error")
                 return _back()
-        timeout = options.gpu_timeout(form.get("tts_gpu_timeout"))
-        values.update({
-            "tts_gpu_enabled": 1 if form.get("tts_gpu_enabled") and url else 0,
-            "tts_gpu_url": url,
-            "tts_gpu_timeout": timeout or options.GPU_DEFAULT_TIMEOUT,
-        })
+        values["tts_gpu_url"] = url
         token = form.get("tts_gpu_auth_token", "").strip()
         if form.get("clear_gpu_token"):
             values["tts_gpu_auth_token"] = ""

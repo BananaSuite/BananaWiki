@@ -77,6 +77,7 @@ def user_detail(user_id: str):
         sessions=service.sessions_for(me, service.active_sessions(target["id"])),
         current_session_id=auth.current_session_id(),
         contributions=service.contribution_count(target["id"]),
+        summary=service.access_summary(target),
         profile_url=endpoint_url("users.profile", username=target["username"]),
         presets=service.SUSPENSION_PRESETS,
     )
@@ -299,38 +300,15 @@ def user_permissions(user_id: str):
         except AccountError as error:
             refuse(error)
         return redirect(url_for("admin.user_permissions", user_id=target["id"]))
-    overridable = target["role"] in ("user", "editor") and not target.get("custom_role_id")
+    overridable = target["role"] in perms.BASE_ROLES
     return render_template(
         "admin/user_permissions.html",
         target=target,
         protection=service.protection_error(me, target),
         overridable=overridable,
         access=service.user_access(target),
+        custom_role=custom_roles.get(target["custom_role_id"]) if target.get("custom_role_id") else None,
         groups=perms.grouped_for(target["role"]) if overridable else [],
-        all_categories=categories.all_categories(),
-    )
-
-
-@bp.route("/admin/users/<string:user_id>/editor-access", methods=["GET", "POST"])
-@auth.admin_required
-def editor_access(user_id: str):
-    target = target_or_404(user_id)
-    me = actor()
-    if request.method == "POST":
-        restricted = request.form.get("restricted") == "1"
-        try:
-            service.save_editor_access(me, target, restricted=restricted,
-                                       category_ids=_category_ids("category_ids") if restricted else [])
-        except AccountError as error:
-            refuse(error)
-        else:
-            auth.flash_t("admin.editor_access.saved", "success")
-        return redirect(url_for("admin.editor_access", user_id=target["id"]))
-    return render_template(
-        "admin/editor_access.html",
-        target=target,
-        protection=service.protection_error(me, target),
-        access=service.user_access(target),
         all_categories=categories.all_categories(),
     )
 

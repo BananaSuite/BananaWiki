@@ -7,6 +7,7 @@ import json
 
 from conftest import PASSWORD
 
+from .access_support import only_stored_permissions
 from .people_support import (
     edit_page,
     image_bytes,
@@ -455,10 +456,10 @@ def test_profile_contributions_respect_page_visibility(app, client, make_user, l
     assert '"total":1' in html
 
 
-def test_contribution_chart_can_be_switched_off(client, make_user, login, db):
+def test_contribution_chart_is_always_on_profiles(client, make_user, login, db):
     login(client, make_user("bob"))
-    db.execute("UPDATE site_settings SET profile_contribution_chart_enabled = 0")
-    assert b"users-calendar-data" not in client.get("/users/bob").data
+    db.execute("UPDATE site_settings SET profile_contribution_chart_enabled = 0")  # retired in version 24
+    assert b"users-calendar-data" in client.get("/users/bob").data
 
 
 def test_member_list(client, make_user, login, db):
@@ -481,6 +482,7 @@ def test_member_list_requires_search_permission(client, make_user, login, db):
     user = make_user("bob")
     db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
                (user["id"],))
+    only_stored_permissions(db, user["id"])
     login(client, user)
     assert client.get("/users").status_code == 403
 

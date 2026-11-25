@@ -167,7 +167,7 @@ def test_upload_policy_and_size_limit(app, client, admin_client, db):
 
 def test_daily_upload_quota_applies(app, client, admin_client, db):
     page = make_page(app, "Quota")
-    db.execute("UPDATE site_settings SET upload_quota_per_day_count = 1")
+    db.execute("UPDATE site_settings SET upload_quota_per_day_bytes = 8")  # "hello" fits once
     assert _api_upload(admin_client, page, "one.txt").status_code == 201
     assert _api_upload(admin_client, page, "two.txt").status_code == 429
     assert len(_rows(db, page)) == 1

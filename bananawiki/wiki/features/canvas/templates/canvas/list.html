@@ -20,14 +20,13 @@
 
 {% if layouts %}
 <ul class="canvas-list" id="canvas-list"
-    {% if can_reorder %}data-order-url="{{ url_for('canvas.save_order') }}" data-version-url="{{ url_for('canvas.list_order_version') }}"
-    data-order-version="{{ order_version }}"{% if shared_order %} data-shared-order{% endif %}{% endif %}
+    {% if can_reorder %}data-order-url="{{ url_for('canvas.save_order') }}"{% endif %}
     >
   {% for layout in layouts %}
   <li class="canvas-list__item" data-layout-id="{{ layout.id }}">
     <div class="canvas-list__body">
       <h2 class="canvas-list__title"><a href="{{ url_for('canvas.view', slug=layout.slug) }}">{{ layout.title }}</a>
-        {% if layout.visibility != 'public' %}<span class="badge">{{ t('canvas.visibility.' ~ layout.visibility) }}</span>{% endif %}
+        {% if layout.visibility != 'members' %}<span class="badge">{{ t('sharing.badge.' ~ layout.visibility) }}</span>{% endif %}
         {% if layout.is_archived %}<span class="badge badge--warning">{{ t('canvas.list.archived') }}</span>{% endif %}
       </h2>
       {% if layout.description %}<p class="canvas-list__desc">{{ layout.description|truncate(160) }}</p>{% endif %}
@@ -43,9 +42,6 @@
   </li>
   {% endfor %}
 </ul>
-{% if can_reorder and layouts|length > 1 %}
-<p class="hint canvas-list-order">{{ t('canvas.list.reorder_hint') }}</p>
-{% endif %}
 {{ forms.pagination(page, pages, 'canvas.index') }}
 {% else %}
 <div class="empty-state"><p>{{ t('canvas.list.empty') }}</p></div>

@@ -55,9 +55,8 @@ def run(app, **kwargs):
 
 
 def test_retention_deletes_messages_files_and_blobs(app, db, data):
-    set_settings(db, chat_cleanup_enabled=1, chat_cleanup_split_configured=1, chat_dm_auto_clear_messages=1,
-                 chat_dm_message_retention_days=30, chat_group_auto_clear_attachments=1,
-                 chat_group_attachment_retention_days=7)
+    set_settings(db, chat_dm_message_retention_days=30, chat_dm_attachment_retention_days=0,
+                 chat_group_message_retention_days=0, chat_group_attachment_retention_days=7)
     summary = run(app, force=True)
     assert summary == {"messages": 1, "attachments": 2, "chats": 0}
     assert db.column("SELECT id FROM chat_messages") == [data["new_dm"]]
@@ -70,37 +69,25 @@ def test_retention_deletes_messages_files_and_blobs(app, db, data):
 
 
 def test_retention_off_or_not_due(app, db, data):
-    assert run(app, force=True) is None
-    set_settings(db, chat_cleanup_enabled=1, chat_cleanup_split_configured=1, chat_dm_auto_clear_messages=1,
-                 chat_dm_message_retention_days=30, last_chat_cleanup_at=sql_in(hours=-1),
-                 chat_cleanup_frequency_days=7)
-    assert run(app) is None
+    set_settings(db, chat_dm_attachment_retention_days=0, chat_group_attachment_retention_days=0)
+    assert run(app, force=True) is None  # every number 0: everything is kept
+    set_settings(db, chat_dm_message_retention_days=30, last_chat_cleanup_at=sql_in(hours=-1))
+    assert run(app) is None  # it ran an hour ago: next time tomorrow
     assert db.scalar("SELECT COUNT(*) FROM chat_messages") == 2
 
 
-def test_legacy_single_policy_is_honoured(app, db, data):
-    set_settings(db, chat_cleanup_enabled=1, chat_auto_clear_messages=1, chat_message_retention_days=30,
-                 chat_dm_auto_clear_attachments=1)
-    with app.app_context(), connection_scope():
-        policy = retention.policy()
-    assert policy["dm"]["auto_clear_messages"] == 1 and policy["dm"]["message_retention_days"] == 30
-    assert policy["group"]["message_retention_days"] == 30
-
-
 def test_empty_old_conversations_are_dropped(app, db, users, data):
-    set_settings(db, chat_cleanup_enabled=1, chat_cleanup_split_configured=1, chat_dm_auto_clear_messages=1,
-                 chat_dm_message_retention_days=1)
+    set_settings(db, chat_dm_message_retention_days=1)
     db.execute("UPDATE chat_messages SET created_at = ?", (sql_in(days=-5),))
     assert run(app, force=True)["chats"] == 1
     assert db.scalar("SELECT COUNT(*) FROM chats") == 0
 
 
 def test_next_run_schedule(app, db):
-    set_settings(db, chat_cleanup_enabled=1, chat_cleanup_hour=3, chat_cleanup_frequency_days=2,
-                 last_chat_cleanup_at="2026-01-01 03:10:00")
+    set_settings(db, chat_dm_message_retention_days=30, last_chat_cleanup_at="2026-01-01 03:10:00")
     with app.app_context(), connection_scope():
-        due = retention.next_run(datetime(2026, 1, 2, 12, tzinfo=UTC))
-    assert due == datetime(2026, 1, 3, 3, tzinfo=UTC)
+        due = retention.next_run(datetime(2026, 1, 1, 12, tzinfo=UTC))
+    assert due == datetime(2026, 1, 2, 3, tzinfo=UTC)  # daily, at 03:00 site time (UTC here)
 
 
 def test_housekeeping_purges_legacy_deleted_content_and_orphans(app, db, users, data):

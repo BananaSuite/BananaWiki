@@ -10,9 +10,6 @@
 .canvas-list__title { font-size: 1rem; margin: 0 0 .25rem; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; overflow-wrap: anywhere; }
 .canvas-list__desc { margin: 0 0 .35rem; font-size: var(--font-size-ui); color: var(--muted); }
 .canvas-list__body p:last-child { margin: 0; }
-.canvas-list-order { margin-top: .75rem; font-size: var(--font-size-ui); color: var(--muted); }
-.canvas-list-order > summary { cursor: pointer; width: fit-content; }
-.canvas-list-order .hint { margin: .4rem 0 0; }
 @media (max-width: 480px) { .canvas-list__move { flex-direction: column; } }
 
 /* Editor page */

@@ -42,10 +42,9 @@ def test_start_validation(client, login, people, make_user):
 
 
 def test_message_validation(client, dm, db):
-    set_settings(db, chat_max_message_length=10)
-    assert send(client, f"/chats/{dm}/send", "x" * 11).status_code == 400
+    assert send(client, f"/chats/{dm}/send", "x" * 5001).status_code == 400  # 5000 characters at most
     assert send(client, f"/chats/{dm}/send", "   ").status_code == 400
-    assert send(client, f"/chats/{dm}/send", "x" * 10).status_code == 200
+    assert send(client, f"/chats/{dm}/send", "x" * 5000).status_code == 200
 
 
 def test_non_participant_gets_404_everywhere(client, login, dm, people, db):
@@ -136,7 +135,7 @@ def test_attachment_rules(client, login, dm, people, db, admin):
     set_settings(db, chat_attachments_per_day_limit=10, chat_max_attachment_size_mb=1)
     big = upload("big.txt", b"x" * (1024 * 1024 + 1))
     assert send(client, f"/chats/{dm}/send", "", attachment=big).status_code == 400
-    set_settings(db, chat_attachments_enabled=0)
+    db.executemany("INSERT OR REPLACE INTO base_role_permissions VALUES (?, 'chat.upload', 0)", [("user",), ("editor",)])
     assert send(client, f"/chats/{dm}/send", "", attachment=upload("d.txt")).status_code == 403
     attachment_id = db.scalar("SELECT MIN(id) FROM chat_attachments")
     response = client.get(f"/chats/attachments/{attachment_id}/download")
@@ -165,13 +164,14 @@ def test_chat_disabled_and_site_switch(client, login, make_user, db, admin):
     assert client.get("/chats").status_code == 403
     assert client.get("/groups").status_code == 403
     switch(client, login, make_user("dave"))
-    set_settings(db, chat_dm_enabled=0)
+    db.executemany("INSERT OR REPLACE INTO base_role_permissions VALUES (?, 'chat.dm', 0)", [("user",), ("editor",)])
     assert client.get("/chats").status_code == 403
-    set_settings(db, chat_dm_enabled=1, chat_allow_dm_creation=0)
+    db.execute("DELETE FROM base_role_permissions")
+    db.executemany("INSERT OR REPLACE INTO base_role_permissions VALUES (?, 'chat.start_dm', 0)", [("user",), ("editor",)])
     assert client.post("/chats/new", data={"username": "admin_user"}, headers=JSON).status_code == 403
     switch(client, login, admin)
-    set_settings(db, chat_dm_enabled=0)
-    assert client.get("/chats").status_code == 200
+    db.executemany("INSERT OR REPLACE INTO base_role_permissions VALUES (?, 'chat.dm', 0)", [("user",), ("editor",)])
+    assert client.get("/chats").status_code == 200  # administrators hold every permission
 
 
 def test_feature_switch(app, client, login, people):
@@ -230,18 +230,20 @@ def test_admin_pages(client, login, dm, people, admin, db):
 
 def test_admin_settings(client, admin_client, db):
     form = {
-        "chat_dm_enabled": "1", "chat_group_enabled": "1", "chat_max_message_length": "200",
-        "chat_max_attachment_size_mb": "3", "chat_attachments_per_day_limit": "4", "chat_cleanup_enabled": "1",
-        "chat_cleanup_frequency_days": "2", "chat_cleanup_hour": "4", "chat_dm_auto_clear_messages": "1",
+        "chat_max_attachment_size_mb": "3", "chat_attachments_per_day_limit": "4",
         "chat_dm_message_retention_days": "30", "chat_dm_attachment_retention_days": "7",
         "chat_group_message_retention_days": "0", "chat_group_attachment_retention_days": "7",
     }
     assert admin_client.post("/admin/chats/settings", data=form).status_code == 302
-    row = db.one("SELECT chat_max_message_length, chat_allow_dm_creation, chat_dm_message_retention_days, "
-                 "chat_cleanup_split_configured FROM site_settings")
-    assert row == {"chat_max_message_length": 200, "chat_allow_dm_creation": 0,
-                   "chat_dm_message_retention_days": 30, "chat_cleanup_split_configured": 1}
-    bad = dict(form, chat_dm_message_retention_days="0")
+    row = db.one("SELECT chat_dm_message_retention_days, chat_group_message_retention_days, "
+                 "chat_attachments_per_day_limit FROM site_settings")
+    assert row == {"chat_dm_message_retention_days": 30, "chat_group_message_retention_days": 0,
+                   "chat_attachments_per_day_limit": 4}
+    page = admin_client.get("/admin/chats/settings").get_data(as_text=True)
+    for retired in ("chat_dm_enabled", "chat_allow_group_creation", "chat_max_message_length", "chat_cleanup_hour",
+                    "chat_dm_auto_clear_messages", "profile_group_badges_enabled"):
+        assert retired not in page, retired
+    bad = dict(form, chat_dm_message_retention_days="-1")
     assert admin_client.post("/admin/chats/settings", data=bad).status_code == 400
     assert admin_client.get("/admin/chats/settings").status_code == 200
 

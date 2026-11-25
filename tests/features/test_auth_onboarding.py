@@ -92,7 +92,7 @@ def test_onboarding_creates_first_users_atomically(client, owner, login, db):
     assert alice == {"role": "editor", "force_password_change": 1, "intro_required": 1}
 
 
-def test_onboarding_is_admin_only_and_replay_can_be_disabled(client, make_user, login, db):
+def test_onboarding_is_admin_only_and_can_be_replayed(client, make_user, login, db):
     user = make_user("bob", onboarding_required=1)
     login(client, user)
     # A non-administrator flagged by a 1.4 database is released, not stuck.
@@ -104,8 +104,8 @@ def test_onboarding_is_admin_only_and_replay_can_be_disabled(client, make_user, 
     admin = make_user("chief", role="admin")
     login(client, admin)
     assert client.get("/onboarding").status_code == 200
-    db.execute("UPDATE site_settings SET onboarding_replay_disabled = 1")
-    assert client.get("/onboarding").status_code == 302
+    db.execute("UPDATE site_settings SET onboarding_replay_disabled = 1")  # retired in version 24
+    assert client.get("/onboarding").status_code == 200
 
 
 def test_onboarding_replay_waits_for_other_account_steps(client, make_user, login, db):
@@ -214,11 +214,10 @@ def test_intro_skip_clears_flag(client, db, make_user, login):
     assert db.scalar("SELECT intro_required FROM users WHERE id = ?", (user["id"],)) == 0
 
 
-def test_intro_replay_setting(client, db, make_user, login):
+def test_the_intro_can_always_be_replayed(client, db, make_user, login):
     login(client, make_user("bob"))
+    db.execute("UPDATE site_settings SET onboarding_replay_disabled = 1")  # retired in version 24
     assert client.get("/intro").status_code == 200
-    db.execute("UPDATE site_settings SET onboarding_replay_disabled = 1")
-    assert client.get("/intro").status_code == 302
 
 
 def test_tour_walkthrough_and_finish(client, db, make_user, login):
@@ -254,13 +253,11 @@ def test_admin_perspective_is_illustration_only(client, db, make_user, login):
     assert client.get("/_probe/admin").status_code == 403
 
 
-def test_role_switching_can_be_disabled(client, db, make_user, login):
-    db.execute("UPDATE site_settings SET intro_role_switching_enabled = 0")
+def test_every_role_can_be_previewed_in_the_tour(client, db, make_user, login):
+    db.execute("UPDATE site_settings SET intro_role_switching_enabled = 0")  # retired in version 24
     login(client, make_user("bob", intro_required=1))
     response = client.post("/tour/start", data={"tour_role": "admin"})
-    assert "role=user" in response.headers["Location"]
-    response = client.post("/tour/role/admin")
-    assert "role=user" in response.headers["Location"]
+    assert "role=admin" in response.headers["Location"]
 
 
 def test_legacy_tour_urls_redirect(client, make_user, login):

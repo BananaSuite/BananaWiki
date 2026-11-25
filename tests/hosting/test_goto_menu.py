@@ -68,7 +68,7 @@ def test_the_apps_are_listed_with_what_signing_in_takes(web, make_account, login
     menu = _menu(web)
     assert _links(menu) == [("https://chat.example.org", "BananaChat"), ("https://git.example.org/", "BananaGit")]
     assert "Sign in with your hosting account." in menu
-    assert "works only if an administrator has given you access" in menu
+    assert "works once an administrator has given you access" in menu
     assert 'aria-describedby="goto-note-git"' in menu and 'id="goto-note-git"' in menu
     # Signed in too, and only the app that has an address.
     _apps(query, git="https://git.example.org/")
@@ -81,6 +81,40 @@ def test_the_menu_works_without_scripts_and_carries_no_inline_code(web, query):
     menu = _menu(web)
     assert "<summary" in menu and 'id="goto-menu-list"' in menu and "Go to" in menu
     assert not re.search(r"\son[a-z]+=", menu) and "<script" not in menu and "style=" not in menu
+
+
+def _header_and_nav(html):
+    header = re.search(r'<header class="topbar board-header">.*?</header>', html, re.S).group(0)
+    nav = re.search(r'<nav class="topbar__actions hosting-nav".*?</nav>', html, re.S).group(0)
+    return header, nav
+
+
+def test_the_menu_sits_in_the_header_just_before_signed_in_as(web, make_account, login, query):
+    _apps(query, chat="https://chat.example.org")
+    # Signed out: on the right of the header, where "Signed in as" would be, and not in the links strip.
+    header, nav = _header_and_nav(web.get("/login").get_data(as_text=True))
+    assert MENU.search(header) and "goto-menu" not in nav
+    assert header.index("topbar__brand") < header.index("data-goto-menu") < header.index("data-nav-toggle")
+    login(web, make_account("member"))
+    header, nav = _header_and_nav(web.get("/account").get_data(as_text=True))
+    assert MENU.search(header) and "goto-menu" not in nav
+    assert re.search(r'</details>\s*<p class="board-header__user">', header)
+
+
+def test_the_menu_is_styled_for_the_header():
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[2] / "bananawiki/hosting/static/css/hosting.css").read_text(encoding="utf-8")
+    rules = {selector.strip(): body for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)}
+    toggle, menu_list = rules[".goto-menu__toggle"], rules[".goto-menu__list"]
+    assert "var(--header-text)" in toggle
+    assert "right: 0" in menu_list and "background: var(--board-bg)" in menu_list and "z-index" in menu_list
+    # Every colour comes from a token the portal defines (an undefined one left the list transparent).
+    defined = set(re.findall(r"(--[\w-]+)\s*:", css))
+    used = {name for selector, body in rules.items() if "goto-menu" in selector
+            for name in re.findall(r"var\((--[\w-]+)", body)}
+    assert used and used <= defined
+    assert not any("goto-menu" in selector and "border-left" in body for selector, body in rules.items())
 
 
 def _save(web, **values):

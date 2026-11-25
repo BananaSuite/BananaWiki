@@ -338,11 +338,11 @@ def test_signup_cleanup_job(app, make_user, db):
     with app.app_context(), connection_scope():
         jobs.account_cleanup()
     assert fetch(db, old_denied) is None and fetch(db, new_denied) is not None
-    assert fetch(db, old_pending) is not None  # pending timeout 0 = never
-    db.execute("UPDATE site_settings SET approval_pending_timeout_hours = 48 WHERE id = 1")
+    assert fetch(db, old_pending) is not None  # unreviewed sign-ups wait until someone decides
+    db.execute("UPDATE site_settings SET approval_pending_timeout_hours = 48 WHERE id = 1")  # retired: ignored
     with app.app_context(), connection_scope():
         jobs.account_cleanup()
-    assert fetch(db, old_pending) is None
+    assert fetch(db, old_pending) is not None
 
 
 def test_expired_suspensions_are_lifted(app, make_user, db):
@@ -528,8 +528,8 @@ def test_auto_logout_job(app, admin_client, make_user, login, db):
 
     bob_client = app.test_client()
     login(bob_client, make_user("bob"))
-    admin_client.post("/admin/sessions/auto-logout", data={"auto_logout_enabled": "1", "auto_logout_hour": "3"})
-    assert db.one("SELECT auto_logout_enabled, auto_logout_hour FROM site_settings")["auto_logout_hour"] == 3
+    admin_client.post("/admin/sessions/auto-logout", data={"auto_logout_enabled": "1"})  # at midnight
+    assert db.scalar("SELECT auto_logout_enabled FROM site_settings") == 1
     with app.app_context(), connection_scope():
         jobs.auto_logout()  # first run: no previous run, nothing happens
     assert bob_client.get("/_probe/private").data == b"private"

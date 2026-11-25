@@ -78,21 +78,16 @@ def _audit_mark(db) -> int:
     return int(db.scalar("SELECT COALESCE(MAX(id), 0) FROM audit_log", default=0))
 
 
-def test_ow1_2_api_settings_form_is_recorded(app, client, make_user, db):
+def test_ow1_2_the_api_has_no_settings_form_left(app, client, make_user, db):
+    """Its limits are the operator's (BW_API_*); nothing on the page changes a setting unrecorded."""
     from tests.features.api_support import enable_api
 
     enable_api(app, db)
     _wiki_login(client, make_user("plainadm", role="admin"))
     mark = _audit_mark(db)
-    answer = client.post("/admin/api-service/settings", data={
-        "enabled": "1", "rate_limit": "9999", "admin_rate_limit": "120", "max_tokens_per_user": "99",
-        "webhook_max_failures": "0"})
-    assert answer.status_code == 302
-    entries = _audit_since(db, mark)
-    assert [action for action, _ in entries] == ["settings.updated"]
-    changed = entries[0][1]["changed"].split(", ")
-    assert "api_service_rate_limit" in changed and "api_service_max_tokens_per_user" in changed
-    assert entries[0][1]["via"] == "api_service"
+    answer = client.post("/admin/api-service/settings", data={"rate_limit": "9999"})
+    assert answer.status_code in (404, 405)
+    assert _audit_since(db, mark) == []
 
 
 def test_ow1_2_api_access_changes_are_recorded(app, client, make_user, db):
@@ -214,21 +209,13 @@ def test_ow2_2_migration_lists_the_installed_guide_only(tmp_path):
 # OW3-2: the settings pages of the collaboration features, and chat retention runs
 
 CHAT_FORM = {
-    "chat_dm_enabled": "1", "chat_group_enabled": "1", "chat_cleanup_enabled": "1",
-    "chat_dm_auto_clear_messages": "1", "chat_dm_message_retention_days": "1",
-    "chat_dm_attachment_retention_days": "0", "chat_group_message_retention_days": "0",
-    "chat_group_attachment_retention_days": "0", "chat_max_message_length": "5000",
-    "chat_max_attachment_size_mb": "5", "chat_attachments_per_day_limit": "10",
-    "chat_cleanup_frequency_days": "1", "chat_cleanup_hour": "3"}
+    "chat_dm_message_retention_days": "1", "chat_dm_attachment_retention_days": "0",
+    "chat_group_message_retention_days": "0", "chat_group_attachment_retention_days": "0",
+    "chat_max_attachment_size_mb": "5", "chat_attachments_per_day_limit": "10"}
 
 
 @pytest.mark.parametrize("url,form,via,key", [
     ("/admin/chats/settings", CHAT_FORM, "chat", "chat_dm_message_retention_days"),
-    ("/kanban/settings", {"kanban_access": "all", "kanban_write_access": "all",
-                          "kanban_public_access_enabled": "1", "kanban_open_access": "1"}, "kanban",
-     "kanban_public_access_enabled"),
-    ("/admin/canvas", {"canvas_access": "all", "canvas_write_access": "all",
-                       "canvas_public_access_enabled": "1", "canvas_open_access": "1"}, "canvas", "canvas_open_access"),
     ("/admin/assessments", {"assessment_points_badge_enabled": "1"}, "assessments",
      "assessment_points_badge_enabled"),
 ])

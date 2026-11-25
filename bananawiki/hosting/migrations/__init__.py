@@ -32,6 +32,14 @@ Version history
 13   Easter eggs administrators design and who found them, and the addresses
      of the platform's BananaChat and BananaGit for the "Go to" menu. See
      :mod:`.v13_eggs_and_apps`.
+14   Sign-up mode "approval" becomes "open" with approval required: approval
+     is one switch that combines with "open" and "invite". See
+     :mod:`.v14_signup_approval`.
+15   Fresh sign-in on request (``auth_time``, ``amr``), administrators acting
+     as an account in wikis and apps (settings, reason, expiry, ``act``) and
+     account links made by administrators. See :mod:`.v15_signin_round3`.
+16   A saved read-aloud GPU address is the GPU switch; where the switch was
+     off the address is emptied. See :mod:`.v16_gpu_address`.
 
 A 1.4 database at version 2 upgrades in place. A new database is created from
 the baseline followed by every later migration, so fresh and upgraded
@@ -59,6 +67,9 @@ from . import (
     v11_custom_domain_policy,
     v12_oauth_apps,
     v13_eggs_and_apps,
+    v14_signup_approval,
+    v15_signin_round3,
+    v16_gpu_address,
 )
 
 APPLICATION_ID = 0x42574850  # "BWHP", unchanged from 1.4
@@ -75,9 +86,12 @@ MIGRATIONS = (
     v11_custom_domain_policy.upgrade,  # 10 -> 11
     v12_oauth_apps.upgrade,  # 11 -> 12
     v13_eggs_and_apps.upgrade,  # 12 -> 13
+    v14_signup_approval.upgrade,  # 13 -> 14
+    v15_signin_round3.upgrade,  # 14 -> 15
+    v16_gpu_address.upgrade,  # 15 -> 16
 )
 LATEST = BASELINE + len(MIGRATIONS)
-SIGNUP_MODES = ("open", "invite", "approval", "closed")
+SIGNUP_MODES = ("open", "invite", "closed")
 
 _BASELINE_SQL = Path(__file__).with_name("baseline_v2.sql")
 
@@ -86,15 +100,17 @@ def bootstrap_for(default_signup_mode: str = "open") -> Callable[[sqlite3.Connec
     """Return the function that creates a brand-new database at the latest version.
 
     *default_signup_mode* comes from ``HOSTING_DEFAULT_SIGNUP_MODE``, which
-    1.4 also read when it created the settings row.
+    1.4 also read when it created the settings row. "approval" (its old
+    value) means "open" with approval required.
     """
+    approval = default_signup_mode == "approval"
     mode = default_signup_mode if default_signup_mode in SIGNUP_MODES else "open"
 
     def bootstrap(conn: sqlite3.Connection) -> None:
         execute_script(conn, _BASELINE_SQL.read_text(encoding="utf-8"))
         conn.execute(
             "INSERT OR IGNORE INTO hosting_settings (id, signup_mode, hosting_activation_required) VALUES (1, ?, ?)",
-            (mode, 1 if mode == "approval" else 0),
+            (mode, 1 if approval else 0),
         )
         for migration in MIGRATIONS:
             migration(conn)

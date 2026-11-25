@@ -63,12 +63,10 @@ def assignable_roles(user: dict[str, Any]) -> tuple[str, ...]:
 
 def _categories(grants: perms.Grants, access: str) -> frozenset[int] | None:
     """The categories *grants* may read or write (None: all of them)."""
-    if grants.is_admin:
-        return None
-    write = (grants.write.allowed if grants.write.restricted else None) if grants.role == "editor" else frozenset()
-    if access == "write" or write is None:
-        return write
-    return grants.read.allowed | write if grants.read.restricted else None
+    readable = perms.readable_category_ids(grants)
+    if access == "read" or not grants.write.restricted:
+        return readable  # unrestricted writing reaches wherever one may read
+    return grants.write.allowed
 
 
 def _covers(mine: frozenset[int] | None, theirs: frozenset[int] | None) -> bool:
@@ -93,7 +91,7 @@ def within_authority(creator: dict[str, Any], role: str | None, custom_role_id: 
     theirs = perms.load_grants(db, {"id": "", "role": role, "custom_role_id": custom_role_id})
     if perms.ROLE_RANK[theirs.role] > perms.ROLE_RANK[mine.role]:
         return False
-    if not theirs.keys <= mine.keys | perms.defaults("user"):
+    if not theirs.keys <= mine.keys | auth.role_defaults("user"):
         return False
     return all(_covers(_categories(mine, access), _categories(theirs, access)) for access in ("read", "write"))
 

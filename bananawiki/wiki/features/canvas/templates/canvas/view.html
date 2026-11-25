@@ -40,6 +40,9 @@
     <button type="button" class="btn btn--small" data-print>{{ t('canvas.view.print') }}</button>
   </div>
   {% if layout.description %}<p class="page-header__meta">{{ layout.description }}</p>{% endif %}
+  {% if current_user and not can_edit and not layout.is_archived %}
+  <p class="page-header__meta">{{ t('canvas.view.view_only_own') if layout.creator_id == current_user.id else t('canvas.view.view_only', owner=layout.creator_username or t('common.unknown_user')) }}</p>
+  {% endif %}
 </header>
 
 <div class="canvas-app" id="canvas-app"

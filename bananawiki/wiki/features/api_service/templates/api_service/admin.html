@@ -2,25 +2,12 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('api_service.admin.title') }}{% endblock %}
 {% block admin_content %}
-<div class="page-header page-header--save">
+<header class="page-header">
   <h1>{{ t('api_service.admin.title') }}</h1>
-  <div class="page-header__actions"><a class="btn" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a>
-    <button class="btn btn--primary" type="submit" form="api-settings-form">{{ t('common.save') }}</button></div>
-</div>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('api_service.docs') }}">{{ t('api_service.docs.link') }}</a></div>
+</header>
 
-<section class="card" id="settings">
-  <h2>{{ t('api_service.admin.settings') }}</h2>
-  <form method="post" action="{{ url_for('api_service.admin_settings') }}" class="form" id="api-settings-form">
-    {{ forms.csrf() }}
-    {{ forms.checkbox('enabled', t('api_service.admin.enabled'), checked=service.enabled, hint=t('api_service.admin.enabled_hint')) }}
-    <div class="form-grid">
-      {{ forms.field('rate_limit', t('api_service.admin.rate_limit'), value=service.rate_limit, type='number', attrs={'min': bounds.rate[0], 'max': bounds.rate[1]}) }}
-      {{ forms.field('admin_rate_limit', t('api_service.admin.admin_rate_limit'), value=service.admin_rate_limit, type='number', attrs={'min': bounds.rate[0], 'max': bounds.rate[1]}) }}
-      {{ forms.field('max_tokens_per_user', t('api_service.admin.max_tokens'), value=service.max_tokens_per_user, type='number', attrs={'min': bounds.tokens[0], 'max': bounds.tokens[1]}) }}
-    </div>
-    {{ forms.field('webhook_max_failures', t('api_service.admin.webhook_max_failures'), value=webhook_max_failures, type='number', hint=t('api_service.admin.webhook_max_failures_hint', days=auto_disable_days), attrs={'min': bounds.failures[0], 'max': bounds.failures[1], 'class': 'input--short', 'inputmode': 'numeric'}) }}
-  </form>
-</section>
+<p class="muted" id="settings">{{ t('api_service.admin.limits_fixed', rate=service.rate_limit, admin_rate=service.admin_rate_limit, tokens=service.max_tokens_per_user, failures=webhook_max_failures) }}</p>
 
 <section class="card" id="tokens">
   <h2>{{ t('api_service.admin.tokens') }}</h2>
@@ -81,7 +68,8 @@
           <select id="lock-{{ user.id }}" name="mode" data-autosubmit>
             {% for mode in lock_modes %}<option value="{{ mode }}"{% if (user.userbot_mode_lock or 'unlocked') == mode %} selected{% endif %}>{{ t('api_service.userbot.lock.' ~ mode) }}</option>{% endfor %}
           </select>
-          <button type="submit" class="btn btn--small">{{ t('common.save') }}</button>
+          {#- Applies on change: the page's one Save, in the header, is for the settings form. -#}
+          <noscript><button type="submit" class="btn btn--small">{{ t('common.save') }}</button></noscript>
         </form>
         {% if user.userbot_enabled %}<span class="badge badge--primary">{{ t('api_service.userbot.state_on') }}</span>{% endif %}
       </td>
@@ -149,7 +137,7 @@
     {% if private_network_offered %}
     {{ forms.checkbox('allow_private_network', t('api_service.webhooks.allow_private'), hint=t('api_service.webhooks.allow_private_hint')) }}
     {% endif %}
-    <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('api_service.webhooks.create') }}</button></div>
+    <div class="btn-row"><button type="submit" class="btn">{{ t('api_service.webhooks.create') }}</button></div>
   </form>
   {% endif %}
 </section>

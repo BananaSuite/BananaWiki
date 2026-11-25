@@ -10,8 +10,7 @@ from .pages_support import in_app, set_feature
 
 
 def enable_api(app, db) -> None:
-    set_feature(app, "api_service", True)
-    db.execute("UPDATE site_settings SET api_service_enabled = 1 WHERE id = 1")
+    set_feature(app, "api_service", True)  # the API's one switch
 
 
 def issue(app, user: dict[str, Any], scopes=("pages",), *, read: bool = True, write: bool = True,

@@ -1,8 +1,11 @@
 # Writing pages
 
-You need the **editor** role (or a custom role that allows it) and write
-access to the category. Users who may only read can often **propose an
-edit** instead (see [organising](organising.md#proposing-an-edit)).
+Members create pages and edit the pages they created; editors also edit
+everyone's pages. Either way you need write access to the page's category.
+If you may only read a page, opening its editor tells you why. Depending on
+the wiki you can **propose an edit** instead (see
+[organising](organising.md#proposing-an-edit)) or **ask for edit access**:
+an administrator approves or declines, and you get a notice.
 
 ## Creating a page
 

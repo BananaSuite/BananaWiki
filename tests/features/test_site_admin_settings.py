@@ -36,8 +36,7 @@ def test_saving_stores_normalised_values(admin_client, db):
     assert row["site_name"] == "Team Wiki" and row["timezone"] == "Europe/Rome"
     assert row["upload_blacklist"] == "exe,bat"
     assert row["upload_quota_per_day_bytes"] == 5 * 1024 * 1024
-    assert row["intro_role_switching_roles"] == "user,admin"
-    assert row["pdf_export_enabled"] == 1 and row["markdown_export_enabled"] == 0
+    assert row["pdf_export_enabled"] == 1
     assert row["public_mode"] == 0 and row["public_mode_until"] is None
     assert db.scalar("SELECT COUNT(*) FROM audit_log WHERE action = 'settings.updated'") == 1
 
@@ -52,9 +51,8 @@ def test_empty_site_name_falls_back(admin_client, db):
     ("timezone", "Mars/Olympus"),
     ("upload_mode", "anything"),
     ("upload_max_size_mb", "0"),
-    ("approval_denied_timeout_hours", "abc"),
+    ("draft_expiration_hours", "abc"),
     ("upload_blacklist", "exe, ../etc"),
-    ("intro_role_switching_roles", ["owner"]),
 ])
 def test_invalid_values_change_nothing(admin_client, db, field, value):
     response = admin_client.post("/admin/settings", data=valid_form(**{field: value}))
@@ -108,6 +106,35 @@ def test_dependent_fields_are_revealed_by_their_switch(admin_client):
     assert 'data-reveal-for="maintenance_mode" data-reveal-values="1"' in access
     uploads = admin_client.get("/admin/settings?section=uploads").get_data(as_text=True)
     assert 'data-reveal-for="upload_mode" data-reveal-values="whitelist"' in uploads
+
+
+def test_rarely_needed_fields_wait_under_advanced(admin_client):
+    def advanced(page):
+        start = page.find('<details class="disclosure"')
+        return page[start:page.index("</details>", start)] if start >= 0 else ""
+
+    uploads = admin_client.get("/admin/settings?section=uploads").get_data(as_text=True)
+    assert 'name="upload_quota_per_day_bytes"' in advanced(uploads)
+    assert 'name="upload_max_size_mb"' in uploads and 'name="upload_max_size_mb"' not in advanced(uploads)
+    refused = admin_client.post("/admin/settings?section=uploads", data={
+        "section": "uploads", "upload_mode": "allow_all", "upload_whitelist": "", "upload_blacklist": "",
+        "upload_max_size_mb": "10", "upload_quota_per_day_bytes": "-1"})
+    assert refused.status_code == 400 and '<details class="disclosure" open' in refused.get_data(as_text=True)
+
+
+def test_four_tabs_and_no_retired_fields(admin_client):
+    general = admin_client.get("/admin/settings").get_data(as_text=True)
+    assert 'name="new_user_intro_enabled"' in general and 'name="pdf_export_enabled"' in general
+    security = admin_client.get("/admin/settings?section=security").get_data(as_text=True)
+    assert 'name="login_app_selector"' in security and 'name="auto_logout_enabled"' in security
+    for section in ("tour", "signin", "content"):
+        assert admin_client.get(f"/admin/settings?section={section}").status_code == 404
+    pages = "".join(admin_client.get(f"/admin/settings?section={s}").get_data(as_text=True)
+                    for s in ("general", "access", "security", "uploads"))
+    for retired in ("public_mode_show_message", "approval_pending_timeout_hours", "intro_role_switching",
+                    "onboarding_replay_disabled", "markdown_export_enabled", "auto_logout_hour",
+                    "quota_request_cooldown_hours"):
+        assert f'name="{retired}' not in pages, retired
 
 
 def test_host_locks_are_shown_and_respected(app_factory, login):

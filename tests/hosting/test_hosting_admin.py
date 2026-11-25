@@ -155,7 +155,7 @@ def test_impersonation_acts_as_the_user_and_is_logged(web, make_account, make_wi
     admin, user = make_account(admin=True), make_account()
     wiki = make_wiki(user, "impersonated")
     login(web, admin)
-    web.post(f"/admin/accounts/{user['id']}/impersonate")
+    web.post(f"/admin/accounts/{user['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
     page = web.get("/dashboard").get_data(as_text=True)
     assert "impersonated" in page and user["username"] in page
     assert web.get("/admin").status_code == 403, "an impersonated session has the user's rights"
@@ -169,7 +169,7 @@ def test_impersonation_acts_as_the_user_and_is_logged(web, make_account, make_wi
 def test_admins_cannot_impersonate_other_admins(web, make_account, login):
     admin, other_admin = make_account(admin=True), make_account(admin=True)
     login(web, admin)
-    web.post(f"/admin/accounts/{other_admin['id']}/impersonate")
+    web.post(f"/admin/accounts/{other_admin['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
     assert web.get("/admin").status_code == 200
 
 
@@ -340,24 +340,49 @@ def test_admin_suspends_a_wiki_with_an_expiry(web, make_account, make_wiki, logi
 def test_settings_save_and_gpu_token_is_encrypted(web, make_account, login, query, portal):
     admin = make_account(admin=True)
     login(web, admin)
-    web.post("/admin/settings", data={"action": "save_tts_gpu", "global_tts_gpu_enabled": "1",
-                                      "global_tts_gpu_url": "https://gpu.example.org",
+    web.post("/admin/settings", data={"action": "save_tts_gpu", "global_tts_gpu_url": "https://gpu.example.org",
                                       "global_tts_gpu_auth_token": "top-secret-token"})
     row = query("SELECT global_tts_gpu_enabled, global_tts_gpu_auth_token FROM hosting_settings", one=True)
-    assert row["global_tts_gpu_enabled"] == 1
+    assert row["global_tts_gpu_enabled"] == 1  # the saved address is the switch
     assert "top-secret-token" not in row["global_tts_gpu_auth_token"]
     page = web.get("/admin/settings").get_data(as_text=True)
-    assert "top-secret-token" not in page
+    assert "top-secret-token" not in page and 'name="global_tts_gpu_enabled"' not in page
     web.post("/admin/settings", data={"action": "save_tts_gpu", "global_tts_gpu_url": "ftp://nope"})
     assert query("SELECT global_tts_gpu_url FROM hosting_settings", one=True)["global_tts_gpu_url"] == "https://gpu.example.org"
+    web.post("/admin/settings", data={"action": "save_tts_gpu", "global_tts_gpu_url": ""})
+    assert query("SELECT global_tts_gpu_enabled FROM hosting_settings", one=True)["global_tts_gpu_enabled"] == 0
+
+
+def test_without_a_gpu_address_hosted_wikis_get_no_gpu(ctx, make_account, make_wiki):
+    from bananawiki.hosting import instances, settings
+
+    settings.update(global_tts_gpu_url="", global_tts_gpu_auth_token="t" * 32)
+    inst = make_wiki(make_account(), "team")
+    assert instances.policy(instances.get(inst["id"])).tts_gpu is None
+
+
+def test_version_16_empties_a_gpu_address_that_was_switched_off():
+    import sqlite3
+
+    from bananawiki.hosting.migrations import v16_gpu_address
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE hosting_settings (id INTEGER PRIMARY KEY, global_tts_gpu_enabled INTEGER, "
+                 "global_tts_gpu_url TEXT)")
+    conn.execute("INSERT INTO hosting_settings VALUES (1, 0, 'https://gpu.lan')")
+    v16_gpu_address.upgrade(conn)
+    assert conn.execute("SELECT global_tts_gpu_enabled, global_tts_gpu_url FROM hosting_settings").fetchone() == (0, "")
+    conn.execute("UPDATE hosting_settings SET global_tts_gpu_enabled = 1, global_tts_gpu_url = 'https://gpu.lan'")
+    v16_gpu_address.upgrade(conn)
+    assert conn.execute("SELECT global_tts_gpu_enabled, global_tts_gpu_url FROM hosting_settings").fetchone() == (
+        1, "https://gpu.lan")
 
 
 def test_hosted_wikis_never_receive_the_gpu_master_token(ctx, make_account, make_wiki):
     from bananawiki.hosting import instances, settings
 
     master = "master-token-" + "x" * 20
-    settings.update(global_tts_gpu_enabled=1, global_tts_gpu_url="https://gpu.example.org",
-                    global_tts_gpu_auth_token=master)
+    settings.update(global_tts_gpu_url="https://gpu.example.org", global_tts_gpu_auth_token=master)
     inst = make_wiki(make_account(), "team")
     gpu = instances.policy(instances.get(inst["id"])).tts_gpu
     assert gpu is not None and gpu.token != master

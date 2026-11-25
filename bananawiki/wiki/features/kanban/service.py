@@ -27,6 +27,7 @@ from ....core.i18n import Catalog
 from ....core.numbers import ascii_int
 from ....core.sqlite import Session
 from ....core.timeutil import now_sql
+from ... import sharing
 from ...db import db
 from ...i18n import t
 from ...markdown import render
@@ -88,7 +89,7 @@ def create_board(user: User, title: Any, description: Any = "", *, default_colum
     with db.transaction():
         board_id = db.insert("kanban_boards", {
             "title": clean_title, "description": clean_description, "created_by": user["id"],
-            "created_at": now_sql(), "visibility": "public",
+            "created_at": now_sql(), "visibility": "private",
         })
         if default_columns:
             for index, key in enumerate(("kanban.column.todo", "kanban.column.doing", "kanban.column.done")):
@@ -171,8 +172,7 @@ def set_visibility(board: dict[str, Any], visibility: str, user: User | None = N
 def _valid_share(share_type: str, target: str, level: str) -> tuple[str, str, str]:
     if share_type not in access.SHARE_TYPES:
         raise KanbanError("kanban.error.invalid_share")
-    if level not in access.ACCESS_LEVELS:
-        level = "view"
+    level = sharing.level_name(level) or "view"
     target = str(target or "").strip()
     if share_type == "role":
         if target not in access.shareable_roles():
@@ -282,27 +282,19 @@ def remove_invalid_assignees(board: dict[str, Any]) -> list[int]:
     return changed
 
 
-def apply_global_settings() -> None:
-    """After ``kanban_access`` changes: drop role shares and assignees that lost access."""
-    allowed = access.shareable_roles()
-    marks = ",".join("?" * len(allowed)) or "''"
-    unassigned: dict[int, list[int]] = {}
-    with db.transaction():
-        db.execute(f"DELETE FROM kanban_board_shares WHERE share_type = 'role' AND target NOT IN ({marks})",
-                   allowed)
-        for board in db.all("SELECT * FROM kanban_boards"):
-            changed = remove_invalid_assignees(board)
-            if changed:
-                unassigned[board["id"]] = changed
-    for board_id, ticket_ids in unassigned.items():
-        signals.tickets_changed("updated", ticket_ids, board_id, None)
-
-
 # Board order
 
 
 def _order_key(user: User | None) -> str | None:
-    return None if user is None or access.open_access() else user["id"]
+    """Whose saved order the list follows: the user's own, else the order shared while the retired
+    open-access setting was on (``user_id`` NULL), which nobody changes any more."""
+    if user is None:
+        return None
+    if db.scalar("SELECT 1 FROM kanban_user_board_order WHERE user_id = ? LIMIT 1", (user["id"],)):
+        return user["id"]
+    if db.scalar("SELECT 1 FROM kanban_user_board_order WHERE user_id IS NULL LIMIT 1"):
+        return None
+    return user["id"]
 
 
 def _saved_order(key: str | None) -> list[int]:
@@ -311,7 +303,7 @@ def _saved_order(key: str | None) -> list[int]:
 
 def ordered_boards(user: User | None, *, archived: bool = False, limit: int | None = None,
                    offset: int = 0) -> list[dict[str, Any]]:
-    """The boards *user* can open, in their saved order (or the shared one with open access).
+    """The boards *user* can open, in their saved order (see :func:`_order_key`).
 
     Archived boards are left out; with ``archived=True`` only they are listed.
     With *limit*, only that window of the list is read.
@@ -329,13 +321,9 @@ MAX_ORDERED_BOARDS = 5000
 
 
 def save_board_order(user: User, board_ids: list[Any]) -> None:
-    """Save the order of the active boards *user* can see (archived ones keep their places after them);
-    boards others see keep their places in a shared order."""
-    key = _order_key(user)
-    if key is None:
-        wanted = _shared_board_order(user, board_ids)
-    else:
-        wanted = _own_board_order(key, user, board_ids)
+    """Save the order of the active boards *user* can see (archived ones keep their places after them)."""
+    key = user["id"]  # type: ignore[index]
+    wanted = _own_board_order(_order_key(user), user, board_ids)
     with db.transaction():
         db.execute("DELETE FROM kanban_user_board_order WHERE user_id IS ?", (key,))
         db.executemany(
@@ -344,7 +332,7 @@ def save_board_order(user: User, board_ids: list[Any]) -> None:
         )
 
 
-def _own_board_order(key: str, user: User, board_ids: list[Any]) -> list[int]:
+def _own_board_order(key: str | None, user: User, board_ids: list[Any]) -> list[int]:
     """A personal order: the active boards sent, then those already placed, at most MAX_ORDERED_BOARDS.
 
     The list shows one page, so only the boards sent and those placed before
@@ -365,18 +353,6 @@ def _own_board_order(key: str, user: User, board_ids: list[Any]) -> list[int]:
             ids.append(board_id)
             seen.add(board_id)
     return ids[:MAX_ORDERED_BOARDS]
-
-
-def _shared_board_order(user: User, board_ids: list[Any]) -> list[int]:
-    """The shared order (open access): every board, with those *user* sees rearranged in their slots."""
-    active = [board["id"] for board in ordered_boards(user)]
-    archived = [board["id"] for board in ordered_boards(user, archived=True)]
-    wanted = store.reorder(active, board_ids) + archived
-    every = store.reorder(db.column("SELECT id FROM kanban_boards ORDER BY created_at DESC, id DESC"),
-                          _saved_order(None), bounded=False)
-    slots = iter(wanted)
-    visible = set(active) | set(archived)
-    return [next(slots) if board_id in visible else board_id for board_id in every]
 
 
 def list_order_version() -> str:

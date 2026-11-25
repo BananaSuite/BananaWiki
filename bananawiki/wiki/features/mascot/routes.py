@@ -65,17 +65,23 @@ def everyone():
     return redirect(url_for("site_admin.appearance"))
 
 
-@bp.post("/admin/appearance/easter-eggs")
-@auth.admin_required
-def easter_eggs():
+def _save_switches(form) -> None:
     """Switch each easter egg on or off for the whole wiki (a box left unticked switches it off)."""
-    if auth.is_impersonating():
-        abort(403)
-    changed = service.save_eggs({egg: bool(request.form.get(f"egg_{egg}")) for egg in service.EGGS})
+    changed = service.save_eggs({egg: bool(form.get(f"egg_{egg}")) for egg in service.EGGS})
     if changed:
         record("mascot.easter_eggs_changed", target_type="site", details={
             "switched_on": sorted(egg for egg, on in changed.items() if on),
             "switched_off": sorted(egg for egg, on in changed.items() if not on)})
+
+
+@bp.post("/admin/appearance/easter-eggs")
+@auth.admin_required
+def easter_eggs():
+    """The switches alone. Appearance saves them with its one Save (:func:`save_with_appearance`); this address
+    stays for scripts and pages opened before an upgrade."""
+    if auth.is_impersonating():
+        abort(403)
+    _save_switches(request.form)
     auth.flash_t("mascot.eggs.saved", "success")
     return redirect(url_for("site_admin.appearance") + "#mascot-eggs-heading")
 
@@ -127,13 +133,10 @@ def _editor_errors(error: shared.EggError) -> list[str]:
     return messages
 
 
-@bp.post("/admin/appearance/easter-eggs/list")
-@auth.admin_required
-def easter_egg_list():
-    """Save the editor's list of key-sequence eggs; anything wrong shows the page again with each problem."""
-    if auth.is_impersonating():
-        abort(403)
-    raw = request.form.get("easter_egg_configs", "")
+def _save_list(form):
+    """Store the editor's list of key-sequence eggs: whether it changed, or, when anything is wrong, the
+    Appearance page again with each problem and what was sent (400)."""
+    raw = form.get("easter_egg_configs", "")
     try:
         changed = easter.save(raw)
     except shared.EggError as error:
@@ -144,8 +147,40 @@ def easter_egg_list():
     if changed:
         record("mascot.easter_egg_list_changed", target_type="site",
                details={"eggs": [egg["id"] for egg in easter.config()["eggs"]]})
+    return None
+
+
+@bp.post("/admin/appearance/easter-eggs/list")
+@auth.admin_required
+def easter_egg_list():
+    """The list alone, kept like :func:`easter_eggs`."""
+    if auth.is_impersonating():
+        abort(403)
+    refused = _save_list(request.form)
+    if refused is not None:
+        return refused
     auth.flash_t("mascot.eggs.list_saved", "success")
     return redirect(url_for("site_admin.appearance") + "#mascot-egg-list-heading")
+
+
+def save_with_appearance(form) -> object | None:
+    """``admin.appearance.save``: Admin -> Appearance's one Save stores the switches and the list with the
+    colours. The list is checked first: when it is refused nothing is stored (the colours neither) and the
+    page shows again with what was sent. ``None`` once saved, or for a form without these fields."""
+    if not form.get("mascot_eggs"):
+        return None
+    switches = {egg: bool(form.get(f"egg_{egg}")) for egg in service.EGGS}
+    if auth.is_impersonating():
+        # The colours may be saved while viewing as another administrator; the easter eggs may not change.
+        if switches != service.eggs() or not easter.unchanged(form.get("easter_egg_configs", "")):
+            abort(403)
+        return None
+    g.easter_egg_switches = switches
+    refused_page = _save_list(form)
+    if refused_page is not None:
+        return refused_page
+    _save_switches(form)
+    return None
 
 
 def user_section(target: dict | None = None) -> str:

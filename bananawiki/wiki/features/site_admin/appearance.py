@@ -3,8 +3,8 @@
 Custom icons are stored in the ``favicons`` folder under names starting with
 ``custom_`` (``templating.favicon_url`` only serves those).
 ``favicon_order`` lists the uploaded icons in display order,
-``favicon_type``/``favicon_custom`` hold the selection and
-``favicon_enabled`` decides whether the selection is used at all.
+``favicon_type``/``favicon_custom`` hold the selection (the default is the
+yellow banana; the old ``favicon_enabled`` switch is retired, version 22).
 """
 
 from __future__ import annotations
@@ -44,28 +44,39 @@ def color_columns() -> list[str]:
     return [color_column(mode, name) for mode in MODES for name in THEME_DEFAULTS[mode]]
 
 
-def palettes() -> dict[str, dict[str, str]]:
-    """Current colours per mode (invalid stored values show the default)."""
+def palettes(sent: Any = None) -> dict[str, dict[str, str]]:
+    """Current colours per mode (invalid stored values show the default), or those *sent* with a form."""
     stored = settings.load()
     result = {}
     for mode in MODES:
         result[mode] = {}
         for name, default in THEME_DEFAULTS[mode].items():
-            value = str(stored.get(color_column(mode, name)) or "")
+            column = color_column(mode, name)
+            value = str((sent.get(column) if sent is not None else None) or stored.get(column) or "").strip()
             result[mode][name] = value if HEX_COLOR.match(value) else default
     return result
 
 
-def default_mode() -> str:
-    return "light" if settings.get("default_theme_mode") == "light" else "dark"
+def default_mode(sent: Any = None) -> str:
+    chosen = sent.get("default_theme_mode") if sent is not None else None
+    return "light" if (chosen or settings.get("default_theme_mode")) == "light" else "dark"
+
+
+EDITABLE_COLORS = ("primary",)
 
 
 def parse_colors(form: Any) -> dict[str, str]:
-    """Colours and default mode from the appearance form; raise on anything invalid."""
+    """Colours and default mode from the appearance form; raise on anything invalid.
+
+    The page offers the main colour of each mode (:data:`EDITABLE_COLORS`); a colour the form does not
+    send keeps its stored value (set by a theme file, or before version 24).
+    """
     values: dict[str, str] = {}
     for mode in MODES:
         for name in THEME_DEFAULTS[mode]:
             column = color_column(mode, name)
+            if column not in form:
+                continue
             value = str(form.get(column) or "").strip()
             if not HEX_COLOR.match(value):
                 raise AppearanceError("site_admin.appearance.error.color", name=column)
@@ -160,10 +171,10 @@ def selection() -> tuple[str, str]:
 
 def select(kind: str, custom: str = "") -> None:
     if kind in FAVICON_PRESETS:
-        settings.update({"favicon_type": kind, "favicon_custom": "", "favicon_enabled": 1})
+        settings.update({"favicon_type": kind, "favicon_custom": ""})
         return
     if kind == "custom" and custom in custom_icons():
-        settings.update({"favicon_type": "custom", "favicon_custom": custom, "favicon_enabled": 1})
+        settings.update({"favicon_type": "custom", "favicon_custom": custom})
         return
     raise AppearanceError("site_admin.favicon.error.unknown")
 
@@ -181,8 +192,7 @@ def upload_icon(upload: FileStorage | None) -> str:
     name = f"custom_{stored.filename}"
     os.replace(folder / stored.filename, folder / name)
     order = [*custom_icons(), name]
-    settings.update({"favicon_order": json.dumps(order), "favicon_type": "custom", "favicon_custom": name,
-                     "favicon_enabled": 1})
+    settings.update({"favicon_order": json.dumps(order), "favicon_type": "custom", "favicon_custom": name})
     return name
 
 

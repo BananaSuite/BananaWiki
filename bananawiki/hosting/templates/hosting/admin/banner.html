@@ -1,0 +1,15 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% from "hosting/admin/_banner_fields.html" import banner_fields with context %}
+{% block title %}{{ t('hosting.banners.edit_title') }}{% endblock %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('admin.banners_page') }}">{{ t('hosting.admin.nav.banners') }}</a></nav>
+<header class="page-header page-header--save"><h1>{{ t('hosting.banners.edit_title') }}</h1>
+  <div class="page-header__actions"><button class="btn btn--primary" type="submit" form="banner-form">{{ t('common.save') }}</button></div></header>
+{#- b: the banner, or what was typed when its Save was refused. -#}
+<section class="card">
+<form method="post" action="{{ url_for('admin.edit_banner', banner_id=banner_id) }}" class="form" id="banner-form">{{ ui.csrf() }}{{ banner_fields(b) }}
+  {{ ui.check('is_active', t('hosting.banners.is_active'), b.is_active) }}</form>
+<div class="btn-row btn-row--danger">{{ ui.post(url_for('admin.delete_banner', banner_id=banner_id), t('hosting.banners.delete'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.common.are_you_sure')) }}</div>
+</section>
+{% endblock %}

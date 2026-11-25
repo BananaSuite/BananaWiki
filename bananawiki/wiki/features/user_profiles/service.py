@@ -64,6 +64,11 @@ def _clean_type(field_type: str | None) -> str:
     return field_type
 
 
+def clean_definition(label: str | None, field_type: str | None) -> tuple[str, str]:
+    """A definition's label and type as they would be stored; raise :class:`ProfileFieldError` if invalid."""
+    return _clean_label(label), _clean_type(field_type)
+
+
 def create_definition(label: str | None, field_type: str | None) -> int:
     label = _clean_label(label)
     field_type = _clean_type(field_type)
@@ -195,6 +200,11 @@ def _clean_tag(label: str | None, color: str | None) -> tuple[str, str]:
     if not HEX_COLOR.fullmatch(color):
         raise ProfileFieldError("profiles.error.tag_color_invalid")
     return label, color.lower()
+
+
+def clean_tag(label: str | None, color: str | None) -> tuple[str, str]:
+    """A tag's label and colour as they would be stored; raise :class:`ProfileFieldError` if invalid."""
+    return _clean_tag(label, color)
 
 
 def add_tag(user_id: str, label: str | None, color: str | None) -> None:

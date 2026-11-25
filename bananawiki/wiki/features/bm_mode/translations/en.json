@@ -3,16 +3,10 @@
   "feature.bm_mode.name": "BM mode",
   "bm_mode.nav": "BM mode",
   "bm_mode.title": "BM mode",
-  "bm_mode.intro": "Fewer features and simpler screens. Hidden features are not deleted.",
   "bm_mode.switch_title": "Mode",
   "bm_mode.switch": "Use BM mode for the whole wiki",
   "bm_mode.switch_hint": "If off, accounts can still turn on BM mode for themselves.",
   "bm_mode.operator_default": "The server starts this wiki in BM mode. Your choice applies until that server setting changes.",
-  "bm_mode.features_title": "Features in BM mode",
-  "bm_mode.features_hint": "Unticked features are hidden in BM mode.",
-  "bm_mode.off_by_default": "Hidden by default",
-  "bm_mode.simplifications_title": "Simplifications",
-  "bm_mode.no_simplifications": "No feature in use has anything to simplify.",
   "bm_mode.flash.saved": "BM mode settings saved.",
   "bm_mode.flash.everyone_on": "BM mode turned on for {count} accounts.",
   "bm_mode.flash.everyone_on_one": "BM mode turned on for 1 account.",
@@ -36,7 +30,6 @@
   "bm_mode.people.count": "{count} accounts turned on BM mode themselves.",
   "bm_mode.people.count_one": "1 account turned on BM mode itself.",
   "bm_mode.everyone.title": "Accounts by role",
-  "bm_mode.everyone.hint": "Turn BM mode on or off for all accounts with the ticked roles.",
   "bm_mode.everyone.on": "Turn on BM mode",
   "bm_mode.everyone.off": "Turn off BM mode",
   "bm_mode.everyone.on_confirm": "Turn on BM mode for every account you can manage with the ticked roles?",
@@ -62,5 +55,6 @@
   "bm_mode.user.rule_allow": "Yes",
   "bm_mode.user.rule_deny": "No, only administrators change it",
   "bm_mode.user.state_on": "This account is in BM mode.",
-  "bm_mode.user.state_off": "This account is not in BM mode."
+  "bm_mode.user.state_off": "This account is not in BM mode.",
+  "bm_mode.what_it_hides": "BM mode hides the features meant for bigger wikis and the less used buttons of pages, the editor, boards and canvases. Nothing is deleted. To show a hidden feature, switch it on under Plugins."
 }

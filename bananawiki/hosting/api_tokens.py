@@ -25,8 +25,10 @@ MAX_ACTIVE = 10
 MAX_CREATED_PER_DAY = 20
 # Days a revoked or expired token row is kept (its events stay in the moderation log).
 RETENTION_DAYS = 90
-SCOPES = ("account:read", "instances:read", "instances:manage", "admin:read")
-ADMIN_SCOPES = frozenset({"admin:read"})
+SCOPES = ("account:read", "instances:read", "instances:manage", "admin:read", "accounts:lookup")
+# Offered to administrators only, and refused once the account is no longer one (or lacks two-step sign-in
+# where administrators must use it). accounts:lookup finds hosting accounts for the linking tools of apps.
+ADMIN_SCOPES = frozenset({"admin:read", "accounts:lookup"})
 EXPIRY_CHOICES = {"30": 30, "90": 90, "365": 365, "never": None}
 _DISPLAY_PREFIX = 12
 

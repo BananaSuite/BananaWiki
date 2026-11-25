@@ -29,11 +29,14 @@ def create_role(client, **data):
 
 def test_create_role_sanitizes_permissions(admin_client, db):
     response = create_role(admin_client, base_role="user",
-                           permissions=["page.edit_all", "page.view_deindexed", "custom_page.manage", "bogus"])
+                           permissions=["page.edit_all", "category.create", "page.view_deindexed", "custom_page.manage",
+                                        "page.delete", "bogus"])
     assert response.status_code == 302
     role_id = db.scalar("SELECT id FROM custom_roles")
     keys = set(db.column("SELECT permission_key FROM custom_role_permissions WHERE role_id = ?", (role_id,)))
-    assert keys == {"page.view_deindexed", "page.view_all"}  # editor-only and admin-only dropped, implied added
+    # Editing content is open to members; editor-only (categories) and admin-only keys are dropped, implied
+    # keys added, the 1.4 name page.delete read as page.delete_all.
+    assert keys == {"page.edit_all", "page.view_deindexed", "page.view_all", "page.delete_all"}
 
 
 def test_role_validation(admin_client, db):
@@ -139,23 +142,47 @@ def test_user_permission_overrides(app, admin_client, make_user, db):
 
 def test_grants_remember_where_the_permissions_come_from(app, admin_client, admin, make_user, db):
     people = {"admin": admin, "defaults": make_user("plain", role="editor"),
-              "custom_role": make_user("roled", role="editor"), "overrides": make_user("solo")}
+              "custom_role": make_user("roled", role="editor"), "own": make_user("solo")}
     create_role(admin_client, permissions=["canvas.create"])
     role_id = db.scalar("SELECT id FROM custom_roles")
     admin_client.post(f"/admin/roles/{role_id}/assign", data={"user_id": people["custom_role"]["id"]})
-    admin_client.post(f"/admin/users/{people['overrides']['id']}/permissions",
+    admin_client.post(f"/admin/users/{people['own']['id']}/permissions",
                       data={"permissions": ["canvas.create"]})
     grants = {name: grants_of(app, user["id"]) for name, user in people.items()}
-    assert {name: found.source for name, found in grants.items()} == {name: name for name in people}
-
-    def explicit(name, feature_on=True):
-        return perms.grants_explicitly(grants[name], "canvas.create", lambda feature: feature_on)
-
-    # Every one of them holds canvas.create, but only a choice made for the person counts as explicit.
+    # A person's own changes apply on top of their base role's defaults.
+    assert {name: found.source for name, found in grants.items()} == {
+        "admin": "admin", "defaults": "defaults", "custom_role": "custom_role", "own": "defaults"}
+    assert {name for name, found in grants.items() if found.personal} == {"own"}
     assert all(perms.grants_permission(found, "canvas.create", lambda feature: True) for found in grants.values())
-    assert {name: explicit(name) for name in people} == {"admin": False, "defaults": False, "custom_role": True,
-                                                        "overrides": True}
-    assert explicit("custom_role", feature_on=False) is False
+    assert not perms.grants_permission(grants["custom_role"], "canvas.create", lambda feature: False)
+
+
+# Base roles
+
+
+def test_base_role_defaults_are_changed_for_the_whole_wiki(app, admin_client, make_user, db):
+    member, editor = make_user("plain"), make_user("editor7", role="editor")
+    page = admin_client.get("/admin/roles").get_data(as_text=True)
+    assert "/admin/roles/base/user" in page and "/admin/roles/base/editor" in page
+    form = admin_client.get("/admin/roles/base/user").get_data(as_text=True)
+    assert 'value="page.create" checked' in form and 'value="category.create"' not in form  # editor-only
+    keys = sorted(perms.builtin_defaults("user") - {"page.create", "kanban.create"} | {"page.export_pdf"})
+    assert admin_client.post("/admin/roles/base/user", data={"permissions": keys}).status_code == 302
+    rows = {row["permission_key"]: row["granted"] for row in db.all("SELECT * FROM base_role_permissions")}
+    assert rows == {"page.create": 0, "kanban.create": 0, "page.export_pdf": 1}  # only the differences
+    found = grants_of(app, member["id"])
+    assert "page.create" not in found.keys and "page.export_pdf" in found.keys and found.source == "defaults"
+    assert grants_of(app, editor["id"]).keys == perms.builtin_defaults("editor")  # the other role is untouched
+    admin_client.post("/admin/roles/base/user", data={"action": "reset"})
+    assert db.scalar("SELECT COUNT(*) FROM base_role_permissions") == 0
+    assert grants_of(app, member["id"]).keys == perms.builtin_defaults("user")
+    assert admin_client.get("/admin/roles/base/admin").status_code == 404
+
+
+def test_only_administrators_change_base_roles(client, make_user, login, db):
+    login(client, make_user("mallory", role="editor"))
+    assert client.post("/admin/roles/base/user", data={"permissions": ["page.edit_all"]}).status_code == 403
+    assert db.scalar("SELECT COUNT(*) FROM base_role_permissions") == 0
 
 
 def test_overrides_refused_for_admins_and_custom_roles(admin_client, make_user, db):
@@ -165,22 +192,31 @@ def test_overrides_refused_for_admins_and_custom_roles(admin_client, make_user, 
     assert b"Only an owner or a superuser" in admin_client.get(f"/admin/users/{peer['id']}/permissions").data
 
 
-def test_editor_access_keeps_default_permissions(app, admin_client, make_user, db):
+def test_write_limits_apply_to_members_too(app, admin_client, make_user, db):
+    docs, other = category(db, "Docs"), category(db, "Other")
+    bob = make_user("bob")
+    admin_client.post(f"/admin/users/{bob['id']}/permissions", data={
+        "permissions": sorted(perms.builtin_defaults("user")),
+        "write_restricted": "1", "write_category_ids": [str(docs)]})
+    grants = grants_of(app, bob["id"])
+    assert perms.can_write_category(grants, docs) and not perms.can_write_category(grants, other)
+    assert perms.can_read_category(grants, other)  # reading stays unlimited
+
+
+def test_unrestricted_writing_stays_within_what_one_reads(app, admin_client, make_user, db):
     docs, other = category(db, "Docs"), category(db, "Other")
     bob = make_user("bob", role="editor")
-    admin_client.post(f"/admin/users/{bob['id']}/editor-access",
-                      data={"restricted": "1", "category_ids": [str(docs)]})
+    admin_client.post(f"/admin/users/{bob['id']}/permissions", data={
+        "permissions": sorted(perms.builtin_defaults("editor")), "read_restricted": "1",
+        "read_category_ids": [str(docs)]})
     grants = grants_of(app, bob["id"])
-    # Except canvas.create: copied as an individual permission it would authorize canvases nobody chose.
-    assert grants.keys == perms.defaults("editor") - {"canvas.create"}
     assert perms.can_write_category(grants, docs) and not perms.can_write_category(grants, other)
-    assert perms.can_read_category(grants, other)
+    assert not perms.can_read_category(grants, other)
 
 
-def test_editor_access_only_for_editors(admin_client, make_user, db):
-    bob = make_user("bob")
-    admin_client.post(f"/admin/users/{bob['id']}/editor-access", data={"restricted": "1"})
-    assert db.scalar("SELECT COUNT(*) FROM user_category_access") == 0
+def test_there_is_no_editor_access_page(admin_client, make_user):
+    bob = make_user("bob", role="editor")
+    assert admin_client.get(f"/admin/users/{bob['id']}/editor-access").status_code == 404
 
 
 def test_non_admin_cannot_edit_permissions(client, make_user, login, db):

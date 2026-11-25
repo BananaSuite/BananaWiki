@@ -20,8 +20,8 @@ BananaWiki keeps your group's pages in one place on your own server. Administrat
 
 | Role | Main purpose |
 |---|---|
-| **User** | read and use the tools they are allowed to |
-| **Editor** | create and update pages |
+| **User** | read; create pages, boards and canvases and work on their own |
+| **Editor** | also edit everyone's pages, boards and canvases |
 | **Administrator** | manage the wiki, users, settings and plugins |
 | **Owner** | administrator that other administrators cannot change |
 

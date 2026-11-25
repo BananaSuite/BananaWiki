@@ -36,6 +36,23 @@
     <button type="button" class="mascot" data-mascot data-mascot-store="local" data-mascot-clicks="{{ mascot.CLICKS_FOR_SHADES if eggs.shades else 0 }}"
             aria-label="{{ t('js.mascot.label') }}" title="{{ t('js.mascot.label') }}"><span class="mascot__body">{{ mascot.svg('normal') }}</span></button>
     <a class="topbar__brand" href="{{ url_for('public.index') }}"><span>{{ service_name }}</span></a>
+    {#- The platform's main wikis and its other apps, on the right of the header just before "Signed in as". A
+        disclosure that works without scripts; hosting.js adds aria-expanded, Escape and the arrow keys. Hidden
+        when there is nothing to list. -#}
+    {% set goto = goto_menu() %}
+    {% if goto %}
+    <details class="goto-menu" data-goto-menu>
+      <summary class="goto-menu__toggle">{{ t('hosting.goto.title') }}</summary>
+      <ul class="goto-menu__list" id="goto-menu-list" aria-label="{{ t('hosting.goto.title') }}">
+        {% for item in goto %}
+        <li class="goto-menu__item goto-menu__item--{{ item.kind }}">
+          <a href="{{ item.url }}" rel="noopener"{% if item.note %} aria-describedby="goto-note-{{ item.kind }}"{% endif %}>{{ item.label }}</a>
+          {% if item.note %}<p class="goto-menu__note" id="goto-note-{{ item.kind }}">{{ item.note }}</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
     {% if current_account %}<p class="board-header__user">{{ t('hosting.nav.signed_in_as') }} <strong>{{ current_account.username }}</strong></p>{% endif %}
     <button type="button" class="btn btn--small hosting-menu-toggle" data-nav-toggle aria-controls="hosting-nav" aria-expanded="false">
       <svg viewBox="0 0 20 20" aria-hidden="true"><path class="icon-menu" d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path class="icon-close" d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -56,22 +73,6 @@
     {% endif %}
     <a href="{{ url_for('public.help_index') }}" {% if request.endpoint and request.endpoint.startswith('public.help') %}aria-current="page"{% endif %}>{{ t('hosting.nav.help') }}</a>
     {% if not current_account %}<a href="{{ url_for('auth.login') }}" {% if request.endpoint == 'auth.login' %}aria-current="page"{% endif %}>{{ t('hosting.nav.login') }}</a>{% endif %}
-    {#- The platform's main wikis and its other apps. A disclosure that works without scripts; hosting.js adds
-        aria-expanded, Escape and the arrow keys. Hidden when there is nothing to list. -#}
-    {% set goto = goto_menu() %}
-    {% if goto %}
-    <details class="goto-menu" data-goto-menu>
-      <summary class="goto-menu__toggle">{{ t('hosting.goto.title') }}</summary>
-      <ul class="goto-menu__list" id="goto-menu-list" aria-label="{{ t('hosting.goto.title') }}">
-        {% for item in goto %}
-        <li class="goto-menu__item goto-menu__item--{{ item.kind }}">
-          <a href="{{ item.url }}" rel="noopener"{% if item.note %} aria-describedby="goto-note-{{ item.kind }}"{% endif %}>{{ item.label }}</a>
-          {% if item.note %}<p class="goto-menu__note" id="goto-note-{{ item.kind }}">{{ item.note }}</p>{% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-    </details>
-    {% endif %}
     </span>
     <span class="hosting-nav__tools">
       {% if current_account %}
@@ -108,7 +109,7 @@
   {% endfor %}
   {% if impersonating %}
   <div class="banner banner--warning">
-    <span class="banner__text">{{ t('hosting.admin.impersonation_banner', username=current_account.username, admin=real_account.username) }}</span>
+    <span class="banner__text">{{ t('hosting.admin.impersonation_banner', username=current_account.username, admin=real_account.username) }}{% if acting_log and acting_log.expires_at %} {{ t('hosting.admin.acting_until', time=acting_log.expires_at|datetime) }}{% endif %}</span>
     <form class="inline" method="post" action="{{ url_for('admin.stop_impersonating') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn--small">{{ t('hosting.admin.stop_impersonating') }}</button>

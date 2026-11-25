@@ -37,7 +37,7 @@
     <p class="hint">{{ t('auth.two_step.renew_help') }}</p>
     <form method="post" action="{{ url_for('auth.two_step_settings') }}" class="form">
       {{ forms.csrf() }}<input type="hidden" name="action" value="renew">
-      {{ m.password('renew-password', t('auth.field.current_password')) }}
+      {{ m.current_password('renew-password') }}
       {{ code_field('renew-code', t('auth.two_step.code_or_recovery')) }}
       <div><button class="btn" type="submit">{{ t('auth.two_step.renew') }}</button></div>
     </form>
@@ -48,7 +48,7 @@
     <p class="hint">{{ t('auth.two_step.disable_help') }}</p>
     <form method="post" action="{{ url_for('auth.two_step_settings') }}" class="form" data-confirm="{{ t('auth.two_step.disable_confirm') }}">
       {{ forms.csrf() }}<input type="hidden" name="action" value="disable">
-      {{ m.password('disable-password', t('auth.field.current_password')) }}
+      {{ m.current_password('disable-password') }}
       {{ code_field('disable-code', t('auth.two_step.code_or_recovery')) }}
       <div><button class="btn btn--danger" type="submit">{{ t('auth.two_step.disable') }}</button></div>
     </form>
@@ -71,7 +71,7 @@
         <form method="post" action="{{ url_for('auth.two_step_settings') }}" class="form">
           {{ forms.csrf() }}<input type="hidden" name="action" value="enable">
           {#- Password first, then the code: the order of the sign-in and of the other forms on this page. -#}
-          {{ m.password('enable-password', t('auth.field.current_password')) }}
+          {{ m.current_password('enable-password') }}
           {{ code_field('enable-code', t('auth.two_step.app_code'), numeric=true) }}
           <div><button class="btn btn--primary" type="submit">{{ t('auth.two_step.enable') }}</button></div>
         </form>

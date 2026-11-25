@@ -21,7 +21,7 @@ from .languages import default_language
 
 
 def _suggested_language() -> str:
-    """The wiki's default language when the built-in guide exists in it, else the chosen fallback."""
+    """The wiki's default language when the built-in guide exists in it, else English."""
     default = default_language()
     if default in docs.LANGUAGES:
         return default

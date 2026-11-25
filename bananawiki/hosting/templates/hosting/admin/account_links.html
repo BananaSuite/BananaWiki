@@ -1,0 +1,100 @@
+{% extends "hosting/base.html" %}
+{% import "hosting/_macros.html" as ui with context %}
+{% set inst = instance %}
+{% block title %}{{ t('hosting.links.title') }} · {{ slug }}{% endblock %}
+{% block column_class %}wide{% endblock %}
+{% block content %}
+{#- Portal admin → a wiki → Account links (bananawiki/hosting/wiki_links.py). Actions only, each named for what it
+    does: Preview, Link N accounts, Unlink, Switch to hosting-only sign-in. Nothing here is a setting with a Save. -#}
+<nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}"><a href="{{ url_for('admin.wiki_list') }}">{{ t('hosting.admin.instances') }}</a> / <a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ slug }}</a></nav>
+<header class="page-header"><h1>{{ t('hosting.links.title') }}</h1></header>
+<p class="page-intro">{{ t('hosting.links.intro', wiki=slug) }}</p>
+{% if not oauth_ready %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('hosting.links.oauth_off') }}</div></div>{% endif %}
+{% if failure %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ failure }}</div></div>{% endif %}
+
+{% if rows is not none %}
+<section class="card" id="preview" aria-labelledby="preview-heading">
+  <h2 id="preview-heading">{{ t('hosting.links.preview_title') }}</h2>
+  <dl class="summary-line">
+    {% for status in ('will_link', 'already_linked', 'conflict', 'not_found', 'skipped') %}
+    <div><dt>{{ t('hosting.links.status.' ~ status) }}</dt><dd>{{ row_counts[status] }}</dd></div>
+    {% endfor %}
+  </dl>
+  {% if rows %}
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('hosting.links.wiki_account') }}</th><th>{{ t('hosting.links.hosting_account') }}</th><th>{{ t('hosting.links.result') }}</th></tr></thead>
+    <tbody>{% for row in rows %}
+      <tr><td data-label="{{ t('hosting.links.wiki_account') }}">{{ row.name }}{% if row.user and row.user.role in ('admin', 'owner') %} <span class="badge">{{ t('hosting.links.role.' ~ row.user.role) }}</span>{% endif %}</td>
+        <td data-label="{{ t('hosting.links.hosting_account') }}">{% if row.account %}{{ row.account.username }}{% elif row.candidates|length > 1 %}{{ row.candidates|map(attribute='username')|join(', ') }}{% else %}—{% endif %}</td>
+        <td data-label="{{ t('hosting.links.result') }}"><span class="badge{% if row.status == 'will_link' %} badge--success{% elif row.status == 'conflict' %} badge--warning{% endif %}">{{ t('hosting.links.status.' ~ row.status) }}</span>{% if row.reason %} <span class="small muted">{{ t('hosting.links.reason.' ~ row.reason) }}</span>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+  {% if row_counts.will_link %}
+  <form method="post" action="{{ url_for('admin.account_links_apply', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+    {% for name, value in request_fields.items() %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <input type="hidden" name="token" value="{{ token }}">
+    {{ ui.check('notify', t('hosting.links.notify'), hint=t('hosting.links.notify_hint')) }}
+    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ tn('hosting.links.link_button', row_counts.will_link, count=row_counts.will_link) }}</button>
+      <a class="btn btn--ghost" href="{{ url_for('admin.account_links', instance_id=inst.id) }}">{{ t('common.cancel') }}</a></div>
+  </form>
+  {% else %}
+  <p class="small muted">{{ t('hosting.links.nothing') }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="card" id="link-one" aria-labelledby="link-one-heading">
+  <h2 id="link-one-heading">{{ t('hosting.links.one_title') }}</h2>
+  <form method="post" action="{{ url_for('admin.account_links_preview', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+    <input type="hidden" name="mode" value="one">
+    {{ ui.field('wiki_username', t('hosting.links.wiki_account'), request_fields.wiki_username, required=true, attrs={'maxlength': 50, 'autocomplete': 'off'}, id='one-wiki') }}
+    {{ ui.field('account', t('hosting.links.hosting_account_any'), request_fields.account, required=true, hint=t('hosting.links.hosting_account_hint'), attrs={'maxlength': 254, 'autocomplete': 'off'}, id='one-account') }}
+    {{ ui.check('include_admins', t('hosting.links.include_admins'), checked=request_fields.include_admins == '1' and request_fields.mode == 'one') }}
+    <div><button class="btn" type="submit">{{ t('hosting.links.preview') }}</button></div>
+  </form>
+</section>
+
+<section class="card" id="link-many" aria-labelledby="link-many-heading">
+  <h2 id="link-many-heading">{{ t('hosting.links.bulk_title') }}</h2>
+  <form method="post" action="{{ url_for('admin.account_links_preview', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+    <fieldset class="plain"><legend>{{ t('hosting.links.rule') }}</legend>
+      {% set chosen = request_fields.mode if request_fields.mode != 'one' else 'username' %}
+      {% for mode in ('username', 'email', 'both', 'list') %}
+      <label class="check"><input type="radio" name="mode" value="{{ mode }}"{% if chosen == mode %} checked{% endif %}><span>{{ t('hosting.links.mode.' ~ mode) }}<small>{{ t('hosting.links.mode.' ~ mode ~ '_hint') }}</small></span></label>
+      {% endfor %}
+    </fieldset>
+    <fieldset class="plain" data-enabled-by="mode=list">{{ ui.textarea('list', t('hosting.links.list'), request_fields.list, hint=t('hosting.links.list_hint'), attrs={'rows': 5, 'maxlength': 100000, 'spellcheck': 'false'}, id='bulk-list') }}</fieldset>
+    {{ ui.check('include_admins', t('hosting.links.include_admins'), checked=request_fields.include_admins == '1' and request_fields.mode != 'one', hint=t('hosting.links.include_admins_hint')) }}
+    <div><button class="btn" type="submit">{{ t('hosting.links.preview') }}</button></div>
+  </form>
+</section>
+
+<section class="card" id="accounts" aria-labelledby="accounts-heading">
+  <h2 id="accounts-heading">{{ t('hosting.links.accounts_title', linked=counts.linked, total=counts.total) }}</h2>
+  {% if items %}
+  <div class="table-wrap"><table class="table table--stack">
+    <thead><tr><th>{{ t('hosting.links.wiki_account') }}</th><th>{{ t('hosting.links.hosting_account') }}</th><th><span class="visually-hidden">{{ t('hosting.admin.actions') }}</span></th></tr></thead>
+    <tbody>{% for item in items %}{% set user = item.user %}
+      <tr><td data-label="{{ t('hosting.links.wiki_account') }}">{{ user.username }}
+          {% if user.role in ('admin', 'owner') %}<span class="badge">{{ t('hosting.links.role.' ~ user.role) }}</span>{% endif %}
+          {% if user.status != 'active' %}<span class="badge badge--warning">{{ t('hosting.links.wiki_status.' ~ user.status, user.status) }}</span>{% endif %}
+          {% if not user.password_set %}<span class="badge">{{ t('hosting.links.no_password') }}</span>{% endif %}
+          {% if user.email %}<br><span class="small muted">{{ user.email }}</span>{% endif %}</td>
+        <td data-label="{{ t('hosting.links.hosting_account') }}">{% if item.account_id %}{{ item.account.username if item.account else item.account_id }}{% if item.linked_at %} <span class="small muted">{{ t('hosting.links.since', date=item.linked_at|date) }}</span>{% endif %}{% if item.only_portal %} <span class="badge">{{ t('hosting.links.only_portal') }}</span>{% endif %}{% else %}<span class="muted">{{ t('hosting.links.not_linked_cell') }}</span>{% endif %}</td>
+        <td>{% if item.account_id %}{{ ui.post(url_for('admin.account_links_unlink', instance_id=inst.id), t('hosting.links.unlink'), 'btn btn--small btn--danger-quiet', confirm=t('hosting.links.unlink_confirm_no_password' if not user.password_set else 'hosting.links.unlink_confirm', name=user.username), hidden={'wiki_user_id': user.id}) }}{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% elif not failure %}<p class="muted">{{ t('hosting.links.no_accounts') }}</p>{% endif %}
+</section>
+
+<section class="card" id="hosting-only" aria-labelledby="hosting-only-heading">
+  <h2 id="hosting-only-heading">{{ t('hosting.links.hosting_only_title') }}</h2>
+  {% if hosting_only %}<p>{{ t('hosting.links.hosting_only_already') }}</p>
+  {% else %}
+  <p class="small muted">{{ t('hosting.links.hosting_only_hint', count=counts.total - counts.linked) }}</p>
+  {% if counts.admins_unlinked %}<p class="small">{{ tn('hosting.links.hosting_only_blocked', counts.admins_unlinked, count=counts.admins_unlinked) }}</p>{% endif %}
+  {{ ui.post(url_for('admin.account_links_hosting_only', instance_id=inst.id), t('hosting.links.hosting_only_button'), 'btn btn--small', confirm=t('hosting.links.hosting_only_confirm')) }}
+  {% endif %}
+</section>
+{% endblock %}

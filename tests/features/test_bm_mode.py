@@ -34,10 +34,9 @@ def _signed_in(app, login, user):
     return client
 
 
-def _save(client, *, mode, features=(), off=()):
+def _save(client, *, mode, **switches):
     data = {"bm_mode": "1"} if mode else {}
-    data.update({f"feature_{feature}": "1" for feature in features})
-    data.update({f"simplify_{item}": "1" for item in ALL_SIMPLIFICATIONS if item not in off})
+    data.update({name: "1" for name, on in switches.items() if on})
     return client.post("/admin/bm-mode", data=data)
 
 
@@ -68,19 +67,18 @@ def test_simplifications_reach_the_pages(easy, admin, login):
     assert client.get("/chats").status_code == 404, "a hidden feature answers 404 like a switched-off one"
 
 
-def test_administrators_choose_features_and_simplifications(easy, admin, login):
+def test_the_bm_page_is_one_switch_and_two_rules_for_people(easy, admin, login):
+    """Which features show is decided on Admin → Plugins; every simplification applies (version 24)."""
     client = _signed_in(easy, login, admin)
     page = client.get("/admin/bm-mode").get_data(as_text=True)
-    assert 'name="bm_mode" value="1" checked' in page and 'name="feature_kanban" value="1" checked' in page
-    assert 'name="feature_chat" value="1">' in page, "hidden by default, one tick away"
-    response = _save(client, mode=True, features=("chat", "kanban", "canvas"), off=("kanban.simple_board",))
-    assert response.status_code == 302
+    assert 'name="bm_mode" value="1" checked' in page
+    assert 'name="feature_' not in page and 'name="simplify_' not in page
+    assert _save(client, mode=True).status_code == 302
+    assert set(_in(easy, bm.applied)) == set(ALL_SIMPLIFICATIONS)
+    assert _in(easy, lambda: registry.is_enabled("kanban")) and not _in(easy, lambda: registry.is_enabled("chat"))
+    client.post("/admin/plugins/chat/enable")
+    _save(client, mode=True)  # saving the page keeps what Plugins chose
     assert _in(easy, lambda: registry.is_enabled("chat"))
-    assert not _in(easy, lambda: registry.is_enabled("drafts")), "everything left unticked is hidden"
-    assert "kanban.simple_board" not in _in(easy, bm.applied)
-    with easy.app_context(), connection_scope() as session:
-        entry = session.one("SELECT details FROM audit_log WHERE action = 'bm_mode.changed'")
-    assert json.loads(entry["details"])["simplifications_off"] == ["kanban.simple_board"]
 
 
 def test_switching_bm_mode_off_restores_the_full_wiki(easy, admin, login):
@@ -124,10 +122,7 @@ def test_pages_name_the_simplifications_that_apply_on_their_root(app, easy, admi
     assert _named(full) == set() and "data-bm=" not in re.search(r"<html[^>]*>", full).group(0)
     assert _named(_signed_in(app, login, own).get("/").get_data(as_text=True)) == set(ALL_SIMPLIFICATIONS)
     chief = _signed_in(easy, login, admin)
-    assert _save(chief, mode=True, features=("canvas",), off=("pages.simple_editor",)).status_code == 302
-    left = set(_in(easy, bm.applied))
-    assert "pages.simple_editor" not in left and "canvas.simple_tools" in left
-    assert _named(chief.get("/").get_data(as_text=True)) == left
+    assert _named(chief.get("/").get_data(as_text=True)) == set(_in(easy, bm.applied))
 
 
 def test_one_person_can_use_bm_mode_while_the_wiki_does_not(app, make_user, login):
@@ -168,14 +163,14 @@ def test_when_the_whole_wiki_is_in_bm_mode_everyone_is(easy, make_user, login):
 def test_administrators_decide_who_may_switch(app, admin, make_user, login):
     member, other = make_user("member"), make_user("other")
     admin_client = _signed_in(app, login, admin)
-    admin_client.post("/admin/bm-mode", data={"feature_kanban": "1"})  # "everyone may switch" left unticked
+    admin_client.post("/admin/bm-mode", data={})  # "everyone may switch" left unticked
     client = _signed_in(app, login, member)
     assert client.post("/settings/bm-mode", data={"bm_mode": "1"}).status_code == 403
     assert "Only administrators can change it" in client.get("/settings/display").get_data(as_text=True)
     admin_client.post(f"/admin/users/{member['id']}/bm-mode", data={"bm_self": "allow"})
     assert client.post("/settings/bm-mode", data={"bm_mode": "1"}).status_code == 302, "allowed for them alone"
     assert _signed_in(app, login, other).post("/settings/bm-mode", data={"bm_mode": "1"}).status_code == 403
-    admin_client.post("/admin/bm-mode", data={"feature_kanban": "1", "bm_self_service": "1"})
+    admin_client.post("/admin/bm-mode", data={"bm_self_service": "1"})
     admin_client.post(f"/admin/users/{member['id']}/bm-mode", data={"bm_mode": "1", "bm_self": "deny"})
     assert client.post("/settings/bm-mode", data={}).status_code == 403, "denied for them, whatever the wiki says"
     assert _bm_column(app, member) == 1
@@ -310,8 +305,7 @@ def test_a_hidden_feature_turned_on_in_plugins_is_shown_in_bm_mode(easy, admin, 
     client = _signed_in(easy, login, admin)
     client.post("/admin/plugins/chat/enable")
     assert _in(easy, lambda: registry.is_enabled("chat"))
-    page = client.get("/admin/bm-mode").get_data(as_text=True)
-    assert 'name="feature_chat" value="1" checked' in page
+    assert "chat" not in _in(easy, lambda: [f.id for f in registry.registry().ordered() if not bm.feature_shown(f)])
 
 
 def test_the_getting_started_list_disappears_when_done(easy, admin, login, db):
@@ -328,20 +322,12 @@ def test_unknown_choices_and_broken_settings_fall_back_to_the_defaults(easy, db)
     assert _in(easy, bm.choices) == {}
 
 
-def test_hiding_follows_the_same_rules_as_switching_off(easy, admin, make_user, login):
-    """A plain administrator may not switch the audit log off, so BM mode does not hide it for them either."""
-    client = _signed_in(easy, login, admin)
-    response = _save(client, mode=True, features=("kanban",))
-    assert response.status_code == 302
-    assert _in(easy, lambda: registry.is_enabled("audit"))
-    assert "Only owners and superusers can turn the audit log off." in client.get("/admin/bm-mode").get_data(
-        as_text=True)
-    owner = _signed_in(easy, login, make_user("boss", role="owner"))
-    _save(owner, mode=True, features=("kanban",))
-    assert not _in(easy, lambda: registry.is_enabled("audit"))
-    with easy.app_context(), connection_scope() as session:
-        last = session.one("SELECT details FROM audit_log WHERE action = 'bm_mode.changed' ORDER BY id DESC LIMIT 1")
-    assert "audit" in json.loads(last["details"])["hidden_features"], "hiding the audit log is itself recorded"
+def test_bm_mode_never_hides_the_audit_log(app, admin, login):
+    """Hiding counts as switching off, which only owners and superusers may do to the audit log: BM mode
+    leaves it shown (it is not among the features BM mode hides)."""
+    client = _signed_in(app, login, admin)
+    assert _save(client, mode=True).status_code == 302
+    assert _in(app, lambda: registry.is_enabled("audit"))
 
 
 def test_bm_mode_leaves_third_party_plugins_to_the_plugins_page(app_factory, tmp_path, admin, login):
@@ -353,7 +339,7 @@ def test_bm_mode_leaves_third_party_plugins_to_the_plugins_page(app_factory, tmp
     assert _in(app, bm.active) and _in(app, lambda: registry.is_enabled("hello_plugin"))
     client = _signed_in(app, login, admin)
     assert "feature_hello_plugin" not in client.get("/admin/bm-mode").get_data(as_text=True)
-    client.post("/admin/bm-mode", data={"bm_mode": "1", "feature_kanban": "1"})  # hello_plugin left unticked
+    client.post("/admin/bm-mode", data={"bm_mode": "1"})
     assert _in(app, lambda: registry.is_enabled("hello_plugin")), "only Admin → Plugins switches it"
     assert "feature:hello_plugin" not in _in(app, bm.choices)
 

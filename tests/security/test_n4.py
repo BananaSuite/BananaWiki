@@ -14,7 +14,6 @@ def _kanban_ticket(app, db, owner):
     from bananawiki.wiki.db import connection_scope
     from bananawiki.wiki.features.kanban import service, store
 
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'editor' WHERE id = 1")
     with app.test_request_context(), connection_scope():
         board = service.create_board(owner, "B", "")
         return service.create_ticket(board, store.columns_of(board["id"])[0], owner, {"title": "T"})
@@ -239,7 +238,6 @@ def test_nw3_4_rest_canvas_creation_shares_the_per_account_limit(app, client, ma
                                                                  frozen_limiter_clock):
     from tests.features.api_support import call, enable_api, issue
 
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     enable_api(app, db)
     eddie = make_user("eddie", role="editor")
     db.execute("UPDATE users SET api_access_enabled = 1 WHERE id = ?", (eddie["id"],))
@@ -282,7 +280,6 @@ def test_nw3_4_canvas_list_is_paged(app, client, make_user, login, db, monkeypat
     from bananawiki.wiki.features.canvas import routes
 
     monkeypatch.setattr(routes, "LIST_PAGE_SIZE", 3, raising=False)
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     ids = _canvases(app, db, make_user("owner1", role="editor"), 7)
     newest = ids[::-1]
     reader = make_user("reader1")
@@ -299,7 +296,7 @@ def test_nw3_4_canvas_list_is_paged(app, client, make_user, login, db, monkeypat
 
     # Anonymous visitors of public canvases get pages too.
     client.post("/logout")
-    db.execute("UPDATE site_settings SET public_mode = 1, canvas_public_access_enabled = 1 WHERE id = 1")
+    db.execute("UPDATE site_settings SET public_mode = 1 WHERE id = 1")
     assert _listed(client)[0] == newest[:3]
     assert _listed(client, "?page=3")[0] == newest[6:]
 
@@ -309,7 +306,6 @@ def test_nw3_4_reordering_the_first_page_keeps_the_order_of_later_pages(app, cli
     from bananawiki.wiki.features.canvas import routes
 
     monkeypatch.setattr(routes, "LIST_PAGE_SIZE", 2, raising=False)
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     c1, c2, c3, c4, c5 = _canvases(app, db, make_user("owner1", role="editor"), 5)
     login(client, make_user("reader1"))
     assert client.post("/api/canvas/layout-order", json={"layout_ids": [c1, c2, c3, c4, c5]}).status_code == 200
@@ -322,14 +318,13 @@ def test_nw3_4_reordering_the_first_page_keeps_the_order_of_later_pages(app, cli
     assert _listed(client, "?page=3")[0] == [c5]
 
 
-def test_nw3_4_saving_a_large_shared_order_takes_linear_time(app, client, make_user, login, db, monkeypatch):
-    """Under open access every save rewrites the shared order, which can hold many canvases."""
+def test_nw3_4_saving_a_large_order_takes_linear_time(app, client, make_user, login, db, monkeypatch):
+    """A save merges the order sent with the order saved before, which can hold many canvases (the one
+    shared under the retired open access, here, which members follow until they arrange their own)."""
     import time
 
     from bananawiki.wiki.features.canvas import access, routes, service
 
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor', "
-               "canvas_open_access = 1 WHERE id = 1")
     monkeypatch.setattr(routes, "ORDER_LIMIT", 50_000)  # as large as an order saved before the limit
     count = 40_000
     visible = list(range(1, count + 1))
@@ -338,18 +333,20 @@ def test_nw3_4_saving_a_large_shared_order_takes_linear_time(app, client, make_u
     saved: dict = {}
     # New int objects on every read, as from the database (identical objects compare without a call).
     monkeypatch.setattr(access, "ordered_ids", lambda user, owner: [int(str(i)) for i in visible])
+    monkeypatch.setattr(service, "order_owner", lambda user: None)
     monkeypatch.setattr(service, "order_ids", lambda owner: [int(str(i)) for i in shared])
     monkeypatch.setattr(service, "save_order", lambda owner, ids: saved.update(owner=owner, ids=ids))
-    login(client, make_user("reader1"))
+    reader = make_user("reader1")
+    login(client, reader)
     sent = [5, 3, 5, 99_999] + visible[:4000]
     started = time.perf_counter()
     response = client.post("/api/canvas/layout-order", json={"layout_ids": sent})
     elapsed = time.perf_counter() - started
     assert response.status_code == 200
-    assert saved["owner"] is None
-    # The sent canvases, then the rest of the shared order (hidden rows in their places); the
+    assert saved["owner"] == reader["id"]  # their own order from now on
+    # The sent canvases, then the rest of the order followed so far, without what they cannot see; the
     # canvases never placed (4001-20001 here) are not stored and keep sorting after them.
-    assert saved["ids"] == [5, 3, 1, 2, 4] + visible[5:4000] + visible[:20_000:-1] + hidden
+    assert saved["ids"] == [5, 3, 1, 2, 4] + visible[5:4000] + visible[:20_000:-1]
     assert elapsed < 0.3, elapsed  # linear: about 0.02 s; the quadratic membership check took 1.6 s
 
 
@@ -358,7 +355,6 @@ def test_nw3_4_saving_the_order_stores_only_placed_canvases(app, client, make_us
     from bananawiki.wiki.features.canvas import routes
 
     monkeypatch.setattr(routes, "LIST_PAGE_SIZE", 2, raising=False)
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     c1, c2, c3, c4, c5, c6 = _canvases(app, db, make_user("owner1", role="editor"), 6)
     reader = make_user("reader1")
     login(client, reader)
@@ -400,8 +396,8 @@ def test_nw3_4_embed_picker_stops_reading_canvases_once_it_has_its_results(app, 
                 read.append(len(rows))
             return rows
 
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor', "
-               "page_builder_enabled = 1, page_builder_access = 'editor' WHERE id = 1")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1 WHERE id = 1")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
     ids = _canvases(app, db, make_user("owner1", role="editor"), 9)
     monkeypatch.setattr(access, "_LIST_BATCH", 2)
     monkeypatch.setattr(access, "db", Counting())
@@ -434,8 +430,8 @@ def test_nw3_4_embed_picker_search_costs_one_pass_over_the_canvases(app, make_us
     from bananawiki.wiki.features.canvas import access
     from bananawiki.wiki.features.page_builder import embeds
 
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor', "
-               "page_builder_enabled = 1, page_builder_access = 'editor' WHERE id = 1")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1 WHERE id = 1")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
     owner = make_user("owner1", role="editor")
     editor = make_user("editor1", role="editor")
     count = 3000

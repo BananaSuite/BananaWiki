@@ -104,6 +104,23 @@ def confirm_password(account: dict[str, Any], password: str) -> bool:
     return True
 
 
+def confirm_code(account: dict[str, Any], code: str) -> bool:
+    """Check a current two-step code of *account* for a confirmation form, on the same budget as
+    :func:`confirm_password` (429 once its failures are spent)."""
+    from .mfa import verify_second_factor
+
+    if not account.get("totp_enabled"):
+        return False
+    limiter = HostingLimiter(_session())
+    reservation = limiter.reserve(f"id:{account['id']}", "confirm-password", CONFIRM_MAX_FAILURES, CONFIRM_WINDOW)
+    if reservation is None:
+        abort(429)
+    if not verify_second_factor(account["id"], code):
+        return False
+    limiter.release(reservation)
+    return True
+
+
 def rate_limit(limit: int, window: int = 60, *, count_get: bool = False) -> Callable[[Callable], Callable]:
     """Limit unsafe requests to a view per client network.
 

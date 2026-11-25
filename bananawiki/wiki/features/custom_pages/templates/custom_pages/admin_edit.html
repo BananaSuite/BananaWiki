@@ -7,11 +7,13 @@
 <nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
   <li><a href="{{ url_for('custom_pages.admin_list') }}">{{ t('custom_pages.admin.title') }}</a></li><li aria-current="page">{{ title }}</li>
 </ol></nav>
-<header class="page-header">
+<header class="page-header page-header--save">
   <h1>{{ title }}</h1>
   <div class="page-header__actions">
-    {% if is_builder and builder_available %}<a class="btn btn--primary btn--small" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
+    <a class="btn btn--ghost btn--small" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.cancel') }}</a>
+    {% if is_builder and builder_available %}<a class="btn btn--small" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a>{% endif %}
     {% if page %}<a class="btn btn--small" href="{{ page.path }}" target="_blank" rel="noopener">{{ t('custom_pages.admin.open') }}</a>{% endif %}
+    <button class="btn btn--primary" type="submit" form="cp-form">{{ t('common.save') if page else t('common.create') }}</button>
   </div>
 </header>
 
@@ -47,7 +49,6 @@
     <legend>{{ t('custom_pages.section.builder') }}</legend>
     {% if is_builder and builder_available %}
     <p><a class="btn" href="{{ url_for('page_builder.custom_editor', page_id=page.id) }}">{{ t('custom_pages.admin.open_builder') }}</a></p>
-    <p class="hint">{{ t('custom_pages.hint.builder') }}</p>
     {% elif builder_available %}
     <p class="hint">{{ t('custom_pages.hint.builder_new') }}</p>
     {% else %}
@@ -122,10 +123,6 @@
     </div>
   </fieldset>
 
-  <div class="btn-row form-actions--sticky">
-    <button class="btn btn--primary" type="submit">{{ t('common.save') if page else t('common.create') }}</button>
-    <a class="btn btn--ghost" href="{{ url_for('custom_pages.admin_list') }}">{{ t('common.cancel') }}</a>
-  </div>
 </form>
 
 {% if files %}

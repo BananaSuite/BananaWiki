@@ -10,12 +10,11 @@ from flask import Response, abort, redirect, render_template, request, send_file
 
 from ....core import downloads
 from ....core.numbers import ascii_int
-from ... import accounts, auth, settings, storage
+from ... import accounts, auth, sharing, storage
 from ...db import db
 from ...i18n import t
 from ...markdown import excerpt
 from ...registry import feature_blueprint
-from ..audit import record_settings
 from ..audit.service import record
 from ..pages.service import slugify
 from . import access, events, filters, guard, history, logtext, service, store, transfer
@@ -25,8 +24,6 @@ from .filters import site_today
 bp = feature_blueprint("kanban", "kanban", __name__, template_folder="templates", static_folder="static",
                        static_url_path="/static/kanban")
 
-GLOBAL_SETTINGS = ("kanban_access", "kanban_write_access")
-GLOBAL_SWITCHES = ("kanban_public_access_enabled", "kanban_open_access")
 #: Boards one page of the board list shows (and archived boards listed at most).
 LIST_PAGE_SIZE = 100
 
@@ -50,7 +47,6 @@ def index():
         if user is None:
             return auth.redirect_to_login()
         abort(403)
-    kanban_settings = {name: settings.get(name) for name in (*GLOBAL_SETTINGS, *GLOBAL_SWITCHES)}
     show_archived = request.args.get("archived") == "1"
     # One page of boards per request, so a wiki with many boards costs the same to list.
     pages = max(1, -(-service.count_boards(user) // LIST_PAGE_SIZE))
@@ -61,7 +57,7 @@ def index():
         "kanban/list.html",
         boards=[{**row, "excerpt": excerpt(row["description"], 160, keep=True)} for row in boards],
         archived_boards=[{**row, "excerpt": excerpt(row["description"], 160, keep=True),
-                          "can_restore": access.is_owner(user, row)} for row in archived],
+                          "can_restore": access.can_delete(user, row)} for row in archived],
         archived_count=service.count_boards(user, archived=True),
         show_archived=show_archived,
         page=page,
@@ -69,10 +65,6 @@ def index():
         can_create=access.can_create(user),
         # Moving boards keeps the boards of later pages after the first page, so only the first page can.
         can_reorder=user is not None and page == 1,
-        open_access=access.open_access(),
-        order_version=service.list_order_version(),
-        kanban_settings=kanban_settings,
-        show_settings=access.is_admin(user) and access.can_use(user),
         show_mine=access.can_use(user),
     )
 
@@ -113,24 +105,6 @@ def mine():
         groups[_due_group(ticket["due_date"], today, ticket.get("column_done", False))].append(ticket)
     return render_template("kanban/mine.html", groups=[(name, groups[name]) for name in DUE_GROUPS if groups[name]],
                            total=len(tickets), limited=len(tickets) >= service.MY_TICKETS_LIMIT, filter=flt)
-
-
-@bp.post("/kanban/settings")
-@auth.admin_required
-def save_settings():
-    """Global kanban access (also editable from the administration pages)."""
-    values: dict[str, Any] = {}
-    for name in GLOBAL_SETTINGS:
-        choice = request.form.get(name, "admin")
-        values[name] = choice if choice in access.ACCESS_SETTING_VALUES else "admin"
-    for name in GLOBAL_SWITCHES:
-        values[name] = 1 if request.form.get(name) else 0
-    previous = settings.load()
-    settings.update(values)
-    record_settings(previous, values, via="kanban")
-    service.apply_global_settings()
-    auth.flash_t("kanban.flash.settings_saved", "success")
-    return redirect(url_for("kanban.index"))
 
 
 @bp.post("/kanban/create")
@@ -214,8 +188,10 @@ def board(board_id: int):
         data=board_page_data(row, user),
         can_write=access.can_write(user, row),
         is_owner=is_owner,
+        can_delete=access.can_delete(user, row),
         can_export=access.can_export(user, row),
-        shares=service.shares(row) if is_owner else [],
+        shares=[{"type": s["share_type"], "target": s["target"], "name": s["username"],
+                 "level": sharing.level_name(s["access_level"])} for s in service.shares(row)] if is_owner else [],
         share_users=_share_directory(user) if is_owner else [],
         shareable_roles=access.shareable_roles() if is_owner else [],
     )
@@ -235,7 +211,7 @@ def edit(board_id: int):
 
 @bp.post("/kanban/<int:board_id>/delete")
 def delete(board_id: int):
-    row = guard.board(board_id, "owner")
+    row = guard.board(board_id, "delete")
     service.delete_board(row, auth.current_user())
     auth.flash_t("kanban.flash.board_deleted", "success")
     return redirect(url_for("kanban.index"))
@@ -243,7 +219,7 @@ def delete(board_id: int):
 
 @bp.post("/kanban/<int:board_id>/archive")
 def archive(board_id: int):
-    row = guard.board(board_id, "owner")
+    row = guard.board(board_id, "delete")
     service.archive_board(row, auth.current_user())
     auth.flash_t("kanban.flash.board_archived", "success", title=row["title"])
     return redirect(url_for("kanban.index"))
@@ -251,7 +227,7 @@ def archive(board_id: int):
 
 @bp.post("/kanban/<int:board_id>/restore")
 def restore(board_id: int):
-    row = guard.board(board_id, "owner")
+    row = guard.board(board_id, "delete")
     service.restore_board(row, auth.current_user())
     auth.flash_t("kanban.flash.board_restored", "success", title=row["title"])
     return _to_board(board_id)

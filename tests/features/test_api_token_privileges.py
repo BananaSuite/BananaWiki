@@ -138,7 +138,6 @@ def test_the_token_page_shows_which_tokens_a_token_issued(api_app, client, db, m
     page = client.get("/settings/api-tokens").get_data(as_text=True)
     assert "Issued through the API by the token “ci”" in page
     assert "Issued through the API by the token “deploy”" in page
-    assert "Revoking a token also revokes every token it issued" in page
     # The confirmation names how many tokens go with it (the grandchild too).
     assert "the 2 tokens it issued are revoked with it" in page
     assert "and the token it issued is revoked with it" in page

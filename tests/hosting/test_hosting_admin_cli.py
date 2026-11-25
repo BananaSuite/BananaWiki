@@ -130,6 +130,15 @@ def test_invites_and_signup_mode(cli, query):
     assert code == 0 and invite["max_uses"] == 3
     assert cli("settings", "signup-mode", "invite")[0] == 0
     assert query("SELECT signup_mode FROM hosting_settings", one=True)["signup_mode"] == "invite"
+    # Approval is its own switch: unchanged unless given, and the old mode "approval" means open with it on.
+    assert cli("settings", "signup-mode", "invite", "--approval", "on")[0] == 0
+    assert cli("settings", "signup-mode", "closed")[0] == 0
+    row = query("SELECT signup_mode, hosting_activation_required FROM hosting_settings", one=True)
+    assert row == {"signup_mode": "closed", "hosting_activation_required": 1}
+    assert cli("settings", "signup-mode", "invite", "--approval", "off")[0] == 0
+    assert cli("settings", "signup-mode", "approval")[0] == 0
+    row = query("SELECT signup_mode, hosting_activation_required FROM hosting_settings", one=True)
+    assert row == {"signup_mode": "open", "hosting_activation_required": 1}
     assert cli("invite", "delete", str(invite["id"]))[0] == 0
     assert cli("invite", "delete", str(invite["id"]))[0] == 1
 

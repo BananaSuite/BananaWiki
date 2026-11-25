@@ -3,7 +3,6 @@ import json
 
 
 def _board_with_comments(app, db, login, author, texts):
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'all' WHERE id = 1")
     client = app.test_client()
     login(client, author)
     assert client.post("/kanban/create", data={"title": "Pay"}).status_code == 302

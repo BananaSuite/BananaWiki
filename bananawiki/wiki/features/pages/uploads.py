@@ -21,7 +21,7 @@ from flask import current_app
 from werkzeug.datastructures import FileStorage
 
 from ....core.timeutil import now_sql, parse, utcnow
-from ... import auth, settings, storage
+from ... import settings, storage
 from ...db import db
 
 log = logging.getLogger("bananawiki.pages.uploads")
@@ -43,15 +43,10 @@ class QuotaExceeded(storage.UploadError):
 
 
 def may_upload(user: dict[str, Any] | None = None) -> bool:
-    """Editors who can create or edit pages (and administrators) may upload images."""
-    user = auth.current_user() if user is None else user
-    if not user:
-        return False
-    if auth.is_admin(user):
-        return True
-    return auth.has_role("editor", user) and (
-        auth.has_permission("page.edit_all", user) or auth.has_permission("page.create", user)
-    )
+    """People who may write pages (and administrators) may upload images."""
+    from .access import may_write_pages
+
+    return may_write_pages(user)
 
 
 def _check_quota(user: dict[str, Any], size: int, files: int = 1) -> dict[str, Any]:

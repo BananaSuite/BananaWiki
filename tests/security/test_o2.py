@@ -162,7 +162,6 @@ def test_ow2_1_upgrade_lists_the_slugs_of_existing_canvases(tmp_path):
 
 
 def _history_canvas(app, client, db, login, make_user):
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     editor = make_user("history_ed", role="editor")
     login(client, editor)
     assert client.post("/canvas/create", data={"title": "Board"}).status_code == 302

@@ -6,10 +6,8 @@ from typing import Any
 
 from flask import abort, current_app, jsonify, redirect, render_template, request, url_for
 
-from ... import auth, registry, settings, storage
+from ... import auth, registry, storage
 from ...i18n import t
-from ...permissions import ROLES
-from ..audit import record_settings
 from ..pages import access as page_access
 from ..pages import categories, uploads
 from ..pages import service as pages
@@ -19,7 +17,6 @@ bp = registry.feature_blueprint(
     "page_builder", "page_builder", __name__,
     template_folder="templates", static_folder="static", static_url_path="/static/page_builder",
 )
-ACCESS_LEVELS = ("admin", "editor", "user")
 IMAGE_UPLOADS_PER_MINUTE = 20
 PREVIEWS_PER_MINUTE = 120
 LOOKUPS_PER_MINUTE = 120
@@ -318,22 +315,3 @@ def delete_section(section_id: int):
     if not service.delete_section(section_id):
         raise Refused(404, "page_builder.error.section_missing")
     return jsonify({"ok": True})
-
-
-# Settings
-
-
-@bp.route("/admin/page-builder", methods=["GET", "POST"])
-@auth.admin_required
-def admin_settings():
-    if request.method == "POST":
-        level = request.form.get("page_builder_access")
-        if level in ACCESS_LEVELS:
-            previous = settings.load()
-            settings.update({"page_builder_access": level})
-            record_settings(previous, {"page_builder_access": level}, via="page_builder")
-            auth.flash_t("common.saved", "success")
-        return redirect(url_for("page_builder.admin_settings"))
-    current = settings.get("page_builder_access")
-    return render_template("page_builder/settings.html", levels=ACCESS_LEVELS,
-                           current=current if current in ROLES else "admin")

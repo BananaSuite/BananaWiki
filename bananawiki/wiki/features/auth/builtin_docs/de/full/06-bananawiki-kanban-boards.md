@@ -12,7 +12,7 @@ Eine Karte hat eine Beschreibung in Markdown, Labels, eine Priorität, ein Fäll
 
 ## Zugriff und Teilen
 
-Administratoren legen fest, welche Rollen Kanban nutzen dürfen. Wer das Board erstellt hat, teilt es unter **Mehr → Teilen** mit Personen oder Rollen, zum Ansehen oder Bearbeiten.
+Mitglieder erstellen Boards und verwalten ihre eigenen. Ein neues Board sieht nur, wer es erstellt hat; unter **Mehr → Teilen** macht man es für alle Mitglieder sichtbar (oder auch für Besucher, solange das Wiki öffentlich ist) und teilt es mit Personen oder Rollen, zum Ansehen oder Bearbeiten. Redakteure bearbeiten jedes Board, das sie öffnen können. Administratoren ändern diese Vorgaben unter **Verwaltung → Rollen**.
 
 ## Verlauf und Export
 

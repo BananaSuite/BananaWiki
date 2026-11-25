@@ -99,10 +99,17 @@ def admin_profile(user_id: str):
         action = request.form.get("action", "")
         before = users.get_profile(target["id"]) or {}
         failed = True
+        tags_changed = False
         try:
             if action == "edit_profile":
+                # The page's one Save also stores the tags' labels and colours (checked first, so a
+                # refused tag changes nothing).
+                tag_edits = _tag_edits(target, request.form)
                 users.save_basics(target["id"], real_name=request.form.get("real_name"),
                                   bio=request.form.get("bio"), birth_date=request.form.get("birth_date"))
+                for tag_id, (label, color) in tag_edits.items():
+                    service.update_tag(target["id"], tag_id, label, color)
+                tags_changed = bool(tag_edits)
                 upload = request.files.get("avatar")
                 if upload is not None and upload.filename:
                     users.save_avatar(target["id"], upload)
@@ -116,7 +123,7 @@ def admin_profile(user_id: str):
         finally:
             # The name and biography are saved before the avatar: a refused avatar (or any later error)
             # leaves them changed, and that is recorded too.
-            changed = _changed(before, users.get_profile(target["id"]) or {})
+            changed = _changed(before, users.get_profile(target["id"]) or {}) + (["tags"] if tags_changed else [])
             if not failed or changed:
                 _audit(target, action, changed)
         if not failed:
@@ -126,6 +133,21 @@ def admin_profile(user_id: str):
     return render_template("user_profiles/admin_profile.html", target=target, profile=record,
                            avatar_url=users.upload_url(record.get("avatar_filename")),
                            tags=service.tags(target["id"]))
+
+
+def _tag_edits(target: dict[str, Any], form: Any) -> dict[int, tuple[str, str]]:
+    """The tags whose label or colour the profile form changed (``tag_label_<id>``, ``tag_color_<id>``),
+    cleaned; raise :class:`service.ProfileFieldError` for any invalid one."""
+    edits = {}
+    for tag in service.tags(target["id"]):
+        label, color = form.get(f"tag_label_{tag['id']}"), form.get(f"tag_color_{tag['id']}")
+        if label is None and color is None:
+            continue  # a tag added after the page was opened
+        cleaned = service.clean_tag(label if label is not None else tag["label"],
+                                    color if color is not None else tag["color"])
+        if cleaned != (tag["label"], tag["color"]):
+            edits[tag["id"]] = cleaned
+    return edits
 
 
 @bp.route("/admin/users/<user_id>/profile-fields", methods=["GET", "POST"])
@@ -198,6 +220,8 @@ def admin_definitions():
             if action == "create":
                 created = service.create_definition(form.get("label"), form.get("field_type"))
                 _audit_definition("profile_field.created", service.get_definition(created))
+            elif action == "update_all":
+                _update_definitions(form)
             elif (previous := service.get_definition(field_id)) is None:
                 abort(404)
             elif action == "update":
@@ -217,8 +241,34 @@ def admin_definitions():
                 abort(400)
         except service.ProfileFieldError as error:
             _flash_error(error)
+            if action == "update_all":  # the rows again as they were typed
+                return _definitions_page(form), 400
         else:
             auth.flash_t("profiles.flash.definitions_saved", "success")
         return redirect(url_for("user_profiles.admin_definitions"))
-    return render_template("user_profiles/admin_definitions.html", definitions=service.definitions(),
-                           types=service.FIELD_TYPES)
+    return _definitions_page()
+
+
+def _definitions_page(sent: Any = None):
+    rows = service.definitions()
+    if sent is not None:
+        rows = [{**row, "label": sent.get(f"label_{row['id']}", row["label"]),
+                 "field_type": sent.get(f"field_type_{row['id']}", row["field_type"])} for row in rows]
+    return render_template("user_profiles/admin_definitions.html", definitions=rows, types=service.FIELD_TYPES)
+
+
+def _update_definitions(form: Any) -> None:
+    """The page's one Save: every row's label and type (``label_<id>``, ``field_type_<id>``). Every row is
+    checked before any is stored; each changed one is audited as the single-row update was."""
+    rows = []
+    for previous in service.definitions():
+        label, field_type = form.get(f"label_{previous['id']}"), form.get(f"field_type_{previous['id']}")
+        if label is None and field_type is None:
+            continue  # a field created after the page was opened
+        rows.append((previous, service.clean_definition(label, field_type)))
+    for previous, (label, field_type) in rows:
+        if (label, field_type) == (previous["label"], previous["field_type"]):
+            continue
+        service.update_definition(previous["id"], label, field_type)
+        _audit_definition("profile_field.updated", service.get_definition(previous["id"]),
+                          previous_label=previous["label"], previous_field_type=previous["field_type"])

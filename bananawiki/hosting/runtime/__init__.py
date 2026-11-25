@@ -262,6 +262,24 @@ class WikiUser:
 
 
 @dataclass(frozen=True)
+class WikiAccount:
+    """One wiki account as the linking tool sees it (Portal admin → a wiki → Account links).
+
+    ``status`` is ``active``, ``suspended``, ``pending`` or ``denied``; ``link`` the wiki's own link to a
+    hosting account (``account_id``, ``portal_username``, ``linked_at``) or None. Everything comes from the
+    tenant database and is untrusted: the portal decides with its own records.
+    """
+
+    id: str
+    username: str
+    role: str
+    email: str
+    status: str
+    password_set: bool
+    link: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
 class DomainCheck:
     """Result of the DNS checks for a custom domain claim.
 
@@ -415,6 +433,20 @@ class Runtime(Protocol):
     def remove_user(self, spec: TenantSpec, username: str) -> None:
         """Delete a wiki user; raises ``user_not_found`` or ``protected_user``
         (owners)."""
+
+    def list_links(self, spec: TenantSpec, *, limit: int = 500, offset: int = 0) -> tuple[list[WikiAccount], int]:
+        """One page of the wiki's accounts (oldest first) with their links to hosting accounts, and the total."""
+
+    def link_users(self, spec: TenantSpec, links: Sequence[tuple[str, str, str]], *, actor: str,
+                   rule: str) -> tuple[list[str], dict[str, str]]:
+        """Link wiki accounts to hosting accounts (``(wiki user id, account id, portal user name)``, at most
+        200) in the wiki's own table, as a person's link would be; returns the ids linked and, for the
+        others, why the wiki refused (``already_linked``, ``user_linked``, ``account_linked``,
+        ``user_not_found``). Audited in the wiki as made by *actor* with *rule*."""
+
+    def unlink_user(self, spec: TenantSpec, wiki_user_id: str, *, actor: str) -> str | None:
+        """Drop the wiki account's link (and end its sessions that came through it); returns the hosting
+        account id it was linked to, or None. Raises ``user_not_found``."""
 
     def reset_admin_password(self, spec: TenantSpec, admin_username: str, new_password: str) -> str:
         """Set *new_password* (with ``force_password_change=1``) on the user

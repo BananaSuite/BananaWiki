@@ -11,8 +11,9 @@
 {% endif %}
 {%- endmacro %}
 
-{#- Permission checkboxes grouped as permissions.grouped_for() returns them. -#}
-{% macro permission_groups(groups, enabled, editor_only=none) -%}
+{#- Permission checkboxes grouped as permissions.grouped_for() returns them; keys in `marked` are flagged
+    as differing from the role (a person's own changes). -#}
+{% macro permission_groups(groups, enabled, editor_only=none, marked=none) -%}
 <div class="perm-groups">
   {% for group_id, label, items in groups %}
   <fieldset>
@@ -20,7 +21,9 @@
     {% for p in items %}
     <label class="check"{% if editor_only is not none and p.key in editor_only %} data-editor-only{% endif %}>
       <input type="checkbox" name="permissions" value="{{ p.key }}"{% if p.key in enabled %} checked{% endif %}>
-      <span>{{ t('permission.' ~ p.key, p.label) }}<small>{{ t('permission.' ~ p.key ~ '.hint', p.description) }}</small></span>
+      {#- A hint that only repeats the name is left out (an empty translation leaves it out too). -#}
+      {% set label = t('permission.' ~ p.key, p.label) %}{% set hint = t('permission.' ~ p.key ~ '.hint', p.description) %}
+      <span>{{ label }}{% if marked and p.key in marked %} <span class="badge badge--primary">{{ t('admin.permissions.changed_mark') }}</span>{% endif %}{% if hint and hint != label %}<small>{{ hint }}</small>{% endif %}</span>
     </label>
     {% endfor %}
   </fieldset>

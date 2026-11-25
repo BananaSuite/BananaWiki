@@ -31,7 +31,6 @@ def hidden(app):
 def restricted(make_user, db, hidden):
     user = make_user("restricted_ed", role="editor")
     restrict(db, user, read=[hidden["open"]["id"]], write=[hidden["open"]["id"]])
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'all' WHERE id = 1")
     return user
 
 

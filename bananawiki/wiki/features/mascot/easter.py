@@ -54,6 +54,14 @@ def save(raw: str) -> bool:
     return True
 
 
+def unchanged(raw: str) -> bool:
+    """Whether saving *raw* would leave the stored list as it is (a list that would be refused is a change)."""
+    try:
+        return shared.dumps(shared.clean(raw, strict=True)) == shared.dumps(config())
+    except shared.EggError:
+        return False
+
+
 def playable() -> list[dict[str, Any]]:
     """The enabled eggs while the master switch is on."""
     if not master_on():

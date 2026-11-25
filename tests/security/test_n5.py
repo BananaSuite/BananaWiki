@@ -40,7 +40,7 @@ def test_nw4_1_a_terminated_wiki_holds_its_place_until_its_owner_deletes_its_dat
     assert len(runtime.tenants) == 1
     refused = _create(client, "second", "198.51.100.2")
     assert refused.status_code == 400
-    assert "count until their data is deleted" in refused.get_data(as_text=True)
+    assert "counting terminated ones until their data is deleted" in refused.get_data(as_text=True)
     assert _wiki(query, "second") is None
     # The owner sees the terminated wiki (downloads are off) and deletes its data to free the place.
     listing = client.get("/dashboard")

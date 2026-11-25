@@ -2,30 +2,32 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('profiles.admin.fields_title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header"><h1>{{ t('profiles.admin.fields_title') }}</h1></header>
+<header class="page-header{% if definitions %} page-header--save{% endif %}"><h1>{{ t('profiles.admin.fields_title') }}</h1>
+  {%- if definitions %}<div class="page-header__actions"><button class="btn btn--primary" type="submit" form="definitions-form" name="action" value="update_all">{{ t('common.save') }}</button></div>{% endif %}</header>
 <div class="section-stack">
 <section class="card">
   <p class="hint hint--block">{{ t('profiles.admin.fields_help') }}</p>
   {% if definitions %}
+  {#- The labels and types belong to one form, saved by the Save in the header; each row's arrows and Delete
+      submit that row's own small form (form="pf-…"), so their cells line up with the headers. -#}
+  <form method="post" id="definitions-form">{{ forms.csrf() }}</form>
   <div class="table-wrap"><table class="table table--stack">
     <thead><tr><th scope="col">{{ t('profiles.admin.label') }}</th><th scope="col">{{ t('profiles.admin.type') }}</th><th scope="col" class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
     <tbody>
     {% for field in definitions %}
-    {#- One form per row; its controls sit in their own cells (form="…") so they line up with the headers. -#}
     <tr>
       <td data-label="{{ t('profiles.admin.label') }}">
         <form method="post" id="pf-{{ field.id }}">{{ forms.csrf() }}<input type="hidden" name="field_id" value="{{ field.id }}"></form>
         <label class="visually-hidden" for="label-{{ field.id }}">{{ t('profiles.admin.label') }}</label>
-        <input id="label-{{ field.id }}" name="label" form="pf-{{ field.id }}" value="{{ field.label }}" maxlength="80" required>
+        <input id="label-{{ field.id }}" name="label_{{ field.id }}" form="definitions-form" value="{{ field.label }}" maxlength="80" required>
       </td>
       <td data-label="{{ t('profiles.admin.type') }}">
         <label class="visually-hidden" for="type-{{ field.id }}">{{ t('profiles.admin.type') }}</label>
-        <select id="type-{{ field.id }}" name="field_type" form="pf-{{ field.id }}">
+        <select id="type-{{ field.id }}" name="field_type_{{ field.id }}" form="definitions-form">
           {% for type in types %}<option value="{{ type }}"{% if type == field.field_type %} selected{% endif %}>{{ t('profiles.type.' ~ type) }}</option>{% endfor %}
         </select>
       </td>
       <td class="actions"><div class="cluster">
-        <button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="update">{{ t('common.save') }}</button>
         {% if not loop.first %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_up" aria-label="{{ t('profiles.move_up') }}">↑</button>{% else %}<span class="btn btn--small btn-placeholder" aria-hidden="true">↑</span>{% endif %}
         {% if not loop.last %}<button class="btn btn--small" form="pf-{{ field.id }}" name="action" value="move_down" aria-label="{{ t('profiles.move_down') }}">↓</button>{% else %}<span class="btn btn--small btn-placeholder" aria-hidden="true">↓</span>{% endif %}
         <button class="btn btn--small btn--danger-quiet" form="pf-{{ field.id }}" name="action" value="delete" data-confirm="{{ t('profiles.admin.delete_field_confirm') }}">{{ t('common.delete') }}</button>
@@ -48,7 +50,7 @@
         <select id="f-field_type" name="field_type">{% for type in types %}<option value="{{ type }}">{{ t('profiles.type.' ~ type) }}</option>{% endfor %}</select>
       </div>
     </div>
-    <div><button class="btn btn--primary" type="submit">{{ t('common.create') }}</button></div>
+    <div><button class="btn" type="submit">{{ t('common.create') }}</button></div>
   </form>
 </section>
 </div>

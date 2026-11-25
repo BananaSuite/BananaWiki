@@ -3,16 +3,10 @@
   "feature.bm_mode.name": "BM-Modus",
   "bm_mode.nav": "BM-Modus",
   "bm_mode.title": "BM-Modus",
-  "bm_mode.intro": "Weniger Funktionen und einfachere Seiten. Ausgeblendete Funktionen werden nicht gelöscht.",
   "bm_mode.switch_title": "Modus",
   "bm_mode.switch": "BM-Modus für das ganze Wiki verwenden",
   "bm_mode.switch_hint": "Wenn aus, können einzelne Konten den BM-Modus trotzdem selbst einschalten.",
   "bm_mode.operator_default": "Der Server startet dieses Wiki im BM-Modus. Deine Wahl gilt, bis sich diese Servereinstellung ändert.",
-  "bm_mode.features_title": "Funktionen im BM-Modus",
-  "bm_mode.features_hint": "Nicht angehakte Funktionen sind im BM-Modus ausgeblendet.",
-  "bm_mode.off_by_default": "Normalerweise ausgeblendet",
-  "bm_mode.simplifications_title": "Vereinfachungen",
-  "bm_mode.no_simplifications": "Keine verwendete Funktion hat etwas zu vereinfachen.",
   "bm_mode.flash.saved": "Einstellungen des BM-Modus gespeichert.",
   "bm_mode.flash.everyone_on": "BM-Modus für {count} Konten eingeschaltet.",
   "bm_mode.flash.everyone_on_one": "BM-Modus für 1 Konto eingeschaltet.",
@@ -36,7 +30,6 @@
   "bm_mode.people.count": "{count} Konten haben den BM-Modus selbst eingeschaltet.",
   "bm_mode.people.count_one": "1 Konto hat den BM-Modus selbst eingeschaltet.",
   "bm_mode.everyone.title": "Konten nach Rolle",
-  "bm_mode.everyone.hint": "BM-Modus für alle Konten mit den angehakten Rollen ein- oder ausschalten.",
   "bm_mode.everyone.on": "BM-Modus einschalten",
   "bm_mode.everyone.off": "BM-Modus ausschalten",
   "bm_mode.everyone.on_confirm": "BM-Modus für alle Konten mit den angekreuzten Rollen einschalten, die du verwalten darfst?",
@@ -62,5 +55,6 @@
   "bm_mode.user.rule_allow": "Ja",
   "bm_mode.user.rule_deny": "Nein, nur Administratoren ändern ihn",
   "bm_mode.user.state_on": "Dieses Konto ist im BM-Modus.",
-  "bm_mode.user.state_off": "Dieses Konto ist nicht im BM-Modus."
+  "bm_mode.user.state_off": "Dieses Konto ist nicht im BM-Modus.",
+  "bm_mode.what_it_hides": "Der BM-Modus blendet die Funktionen für größere Wikis und die selten genutzten Knöpfe von Seiten, Editor, Boards und Canvas aus. Gelöscht wird nichts. Um eine ausgeblendete Funktion zu zeigen, schalte sie unter Plugins ein."
 }

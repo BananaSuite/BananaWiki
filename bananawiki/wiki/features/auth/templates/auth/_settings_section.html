@@ -1,16 +1,64 @@
-{#- Settings → Security: two-step verification and the hosting-portal account. -#}
-<section class="form-section" id="two-step" aria-labelledby="two-step-heading">
-  <h2 id="two-step-heading">{{ t('auth.two_step.title') }}</h2>
-  <p class="cluster">{% if two_step_state %}<span class="badge badge--success">{{ t('auth.two_step.on') }}</span>
-    <span class="muted small">{{ t('auth.two_step.settings_help_on') }}</span>{% else %}<span class="badge">{{ t('auth.two_step.off') }}</span>
-    <span class="muted small">{{ t('auth.two_step.settings_help_off') }}</span>{% endif %}</p>
-  {% if not impersonating %}
-  <p><a class="btn" href="{{ url_for('auth.two_step_settings') }}">{{ t('auth.two_step.manage') if two_step_state else t('auth.two_step.set_up') }}</a></p>
+{#- Settings → Security: one "Sign-in methods" section. BananaWiki Hosting (connect, disconnect), the password (set
+    or change), two-step codes (for password sign-ins) and the email address (kept with the notification choices).
+    Each part is an action with its own button; nothing here is saved by a page Save. -#}
+{% import "users/_macros.html" as m with context %}
+{% set back = url_for('users.security') ~ '#sign-in-methods' %}
+<section class="form-section signin-methods" id="sign-in-methods" aria-labelledby="sign-in-methods-heading">
+  <h2 id="sign-in-methods-heading">{{ t('auth.methods.title') }}</h2>
+  {% if on_behalf %}<div class="alert alert--warning" role="status"><div class="alert__body">{{ t('auth.acting.refused_here') }}</div></div>{% endif %}
+
+  {% if hosting_offered %}
+  <div class="signin-method" id="method-hosting">
+    <h3 class="signin-method__title">{{ t('auth.methods.hosting') }}</h3>
+    {% if link %}
+    <p class="cluster"><span class="badge badge--success">{{ t('auth.methods.connected') }}</span>
+      <span>{{ t('auth.methods.hosting_connected', name=link.portal_username, date=link.linked_at|date) }}</span></p>
+    {% if not on_behalf %}
+    {% if disconnect_problem %}<p class="hint">{{ t(disconnect_problem) }}</p>
+    {% else %}
+    <details class="disclosure">
+      <summary>{{ t('auth.methods.disconnect') }}</summary>
+      <form method="post" action="{{ url_for('auth.platform_oauth_unlink_account') }}" class="form" data-confirm="{{ t('auth.methods.disconnect_confirm') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ m.current_password('unlink-password', back=back) }}
+        <div><button class="btn btn--danger-quiet btn--small" type="submit">{{ t('auth.methods.disconnect') }}</button></div>
+      </form>
+    </details>
+    {% endif %}
+    {% endif %}
+    {% else %}
+    <p class="cluster"><span class="badge">{{ t('auth.methods.not_connected') }}</span>
+      <span class="muted small">{{ t('auth.methods.hosting_none') }}</span></p>
+    {% if not on_behalf %}
+    <form method="post" action="{{ url_for('auth.platform_oauth_link_account') }}" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {{ m.current_password('link-password', hint=t('auth.methods.connect_hint'), back=back) }}
+      <div><button class="btn" type="submit">{{ t('auth.methods.connect') }}</button></div>
+    </form>
+    {% endif %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% set return_to = 'security' %}{% set nested = true %}{% include "users/_password_section.html" %}
+
+  <div class="signin-method" id="two-step">
+    <h3 class="signin-method__title" id="two-step-heading">{{ t('auth.methods.two_step') }}</h3>
+    <p class="cluster">{% if two_step_state %}<span class="badge badge--success">{{ t('auth.two_step.on') }}</span>{% else %}<span class="badge">{{ t('auth.two_step.off') }}</span>{% endif %}
+      <span class="muted small">{{ t('auth.methods.two_step_note') }}</span></p>
+    {% if not has_password and not two_step_state %}
+    <p class="hint">{{ t('auth.methods.two_step_needs_password') }}</p>
+    {% elif not on_behalf %}
+    <p><a class="btn btn--small" href="{{ url_for('auth.two_step_settings') }}">{{ t('auth.methods.two_step_off_action') if two_step_state else t('auth.two_step.set_up') }}</a></p>
+    {% endif %}
+  </div>
+
+  {% if email_offered %}
+  <div class="signin-method" id="method-email">
+    <h3 class="signin-method__title">{{ t('auth.methods.email') }}</h3>
+    <p class="cluster">{% if user.email %}<span>{{ user.email }}</span>{% else %}<span class="muted">{{ t('auth.methods.email_none') }}</span>{% endif %}
+      {% if not on_behalf %}<a class="btn btn--small" href="{{ url_for('users.notifications') }}#notifications">{{ t('auth.methods.email_change') if user.email else t('auth.methods.email_add') }}</a>{% endif %}</p>
+    <p class="hint">{{ t('auth.methods.email_hint') }}</p>
+  </div>
   {% endif %}
 </section>
-{% if oauth_enabled %}
-<section class="form-section" id="platform-account" aria-labelledby="platform-account-heading">
-  <h2 id="platform-account-heading">{{ t('auth.oauth.settings_title') }}</h2>
-  <p><a class="btn" href="{{ url_for('auth.platform_oauth_link_account') }}">{{ t('auth.oauth.manage') }}</a></p>
-</section>
-{% endif %}

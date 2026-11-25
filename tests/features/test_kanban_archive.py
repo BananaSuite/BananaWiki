@@ -10,7 +10,8 @@ import pytest
 
 from bananawiki.wiki.features.kanban import history, schema
 
-from .test_kanban import as_client, board_id_from, columns, new_ticket, set_settings
+from .access_support import members_see, role_default
+from .test_kanban import as_client, board_id_from, columns, new_ticket
 
 
 @pytest.fixture
@@ -88,7 +89,7 @@ def test_archive_a_whole_column_and_bulk_actions(admin_client, board, db):
 
 
 def test_archive_permissions_and_idor(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+    members_see(db)
     ticket = new_ticket(admin_client, columns(admin_client, board)[0]["id"])
     column_id = columns(admin_client, board)[0]["id"]
     reader = as_client(app, login, make_user("reader"))
@@ -167,7 +168,8 @@ def test_export_import_keep_archive_state(admin_client, board, db):
 
 
 def test_archived_board_is_hidden_and_read_only(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all", kanban_write_access="all")
+    members_see(db)
+    role_default(db, "user", "kanban.edit_all", True)
     writer = as_client(app, login, make_user("writer"))
     column_id = columns(admin_client, board)[0]["id"]
     ticket = new_ticket(admin_client, column_id)
@@ -207,7 +209,7 @@ def test_board_order_survives_archiving(admin_client, db, board):
 
 
 def test_hidden_archived_boards_stay_hidden(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+    members_see(db)
     admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "private"})
     admin_client.post(f"/kanban/{board}/archive")
     outsider = as_client(app, login, make_user("outsider"))

@@ -15,6 +15,20 @@ suspending or deleting the account take effect at once.
 Apps other than wikis (:mod:`.oauth_apps`) share the codes and tokens tables
 (their codes carry the scopes they were allowed) and these functions.
 
+Each code and token remembers the portal sign-in it came from: ``auth_time``
+(Unix seconds of that sign-in) and ``amr`` (``pwd``, plus ``otp`` after a
+two-step code), which the token response and userinfo return, for wikis and
+apps that ask for a fresh sign-in (``prompt=login``, ``max_age``) before a
+sensitive change. A code issued to an administrator acting as an account
+(:mod:`.acting`) also carries the acting, returned as ``act`` and
+``act_expires_at``.
+
+Sign-up from an app (``prompt=create``): without a portal session the
+authorize request shows the portal's sign-up form, which follows every rule
+of ``/signup`` and then continues the request. :func:`continuing_client`
+names the wiki or app it continues to, from the client's registration only,
+and :func:`signup_state` is what the metadata tells clients about sign-up.
+
 Consent is asked once per wiki and remembered in ``hosting_oauth_grants``
 (the owner's own wikis never ask): later sign-ins go straight back to the
 wiki. An account sees and withdraws its grants on **Account → Wikis**, which
@@ -28,10 +42,11 @@ import hashlib
 import re
 import secrets
 import string
+import time
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
-from flask import current_app
+from flask import current_app, session
 
 from ..core import crypto
 from ..core.crypto import sha256_hex
@@ -43,6 +58,31 @@ from .runtime import OAuthClient
 CODE_SECONDS = 300
 TOKEN_SECONDS = 3600
 SCOPE = "openid profile"
+MAX_AGE_LIMIT = 86400
+# What a portal session's sign-in used (hosting_account_sessions.auth_method), as RFC 8176 values.
+_AMR = {"totp": ("pwd", "otp"), "recovery_code": ("pwd", "otp")}
+
+
+def sign_in_facts(session_row: dict[str, Any] | None) -> tuple[int | None, str]:
+    """``(auth_time, amr)`` of the interactive portal sign-in behind *session_row*: when it started (Unix
+    seconds) and what it used (space-separated)."""
+    from .acting import unix
+
+    if not session_row:
+        return None, ""
+    return unix(session_row.get("created_at")), " ".join(_AMR.get(str(session_row.get("auth_method")), ("pwd",)))
+
+
+def sign_in_claims(row: dict[str, Any]) -> dict[str, Any]:
+    """``auth_time``, ``amr`` and, while acting, ``act`` and ``act_expires_at`` of a token row."""
+    from . import acting
+
+    claims: dict[str, Any] = {}
+    if row.get("auth_time") is not None:
+        claims["auth_time"] = int(row["auth_time"])
+    if row.get("amr"):
+        claims["amr"] = str(row["amr"]).split()
+    return {**claims, **acting.claims(row)}
 
 
 def enabled() -> bool:
@@ -138,14 +178,21 @@ def redirect_allowed(inst: dict[str, Any], redirect_uri: str) -> bool:
 
 
 def issue_code(client_id: str, account_id: str, redirect_uri: str, challenge: str, method: str,
-               scope: str = "") -> str:
-    """A new authorization code; *scope* is an app's (:mod:`.oauth_apps`), empty for a wiki."""
+               scope: str = "", *, auth_time: int | None = None, amr: str = "",
+               act: dict[str, Any] | None = None) -> str:
+    """A new authorization code; *scope* is an app's (:mod:`.oauth_apps`), empty for a wiki.
+
+    *auth_time* and *amr* describe the portal sign-in behind it (:func:`sign_in_facts`); *act* is the
+    ``hosting_impersonation_logs`` row when an administrator acting as the account signs in.
+    """
     code = secrets.token_urlsafe(32)
     db.execute("DELETE FROM hosting_oauth_authorization_codes WHERE expires_at < ?", (now_sql(),))
     db.insert("hosting_oauth_authorization_codes", {
         "code": sha256_hex(code), "client_id": client_id, "account_id": account_id, "redirect_uri": redirect_uri,
         "expires_at": sql_in(seconds=CODE_SECONDS), "created_at": now_sql(), "code_challenge": challenge,
-        "code_challenge_method": method, "scope": scope,
+        "code_challenge_method": method, "scope": scope, "auth_time": auth_time, "amr": amr,
+        "act_account_id": act["admin_account_id"] if act else None,
+        "act_expires_at": act["expires_at"] if act else None, "act_log_id": act["id"] if act else None,
     })
     return code
 
@@ -187,9 +234,15 @@ def redeem_code(code: str, client_id: str, redirect_uri: str, verifier: str) -> 
             return None
         token = secrets.token_urlsafe(32)
         db.execute("DELETE FROM hosting_oauth_access_tokens WHERE expires_at < ?", (now_sql(),))
+        expires = sql_in(seconds=TOKEN_SECONDS)
+        if row.get("act_expires_at"):
+            expires = min(expires, row["act_expires_at"])  # never outlives the acting it was issued in
         db.insert("hosting_oauth_access_tokens", {
             "token_hash": sha256_hex(token), "client_id": client_id, "account_id": row["account_id"],
-            "scope": row.get("scope") or SCOPE, "expires_at": sql_in(seconds=TOKEN_SECONDS), "created_at": now_sql(),
+            "scope": row.get("scope") or SCOPE, "expires_at": expires, "created_at": now_sql(),
+            "auth_time": row.get("auth_time"), "amr": row.get("amr") or "",
+            "act_account_id": row.get("act_account_id"), "act_expires_at": row.get("act_expires_at"),
+            "act_log_id": row.get("act_log_id"),
         })
         db.execute("UPDATE hosting_oauth_grants SET last_used_at = ? WHERE account_id = ? AND instance_id = "
                    "(SELECT id FROM instances WHERE oauth_client_id = ?)", (now_sql(), row["account_id"], client_id))
@@ -214,6 +267,10 @@ def _refused(row: dict[str, Any], redirect_uri: str, verifier: str) -> bool:
         return True
     if not account_may_sign_in(accounts.get(row["account_id"])):
         return True
+    from . import acting
+
+    if not acting.sign_in_valid(row):
+        return True  # issued while acting, which has ended (or may no longer reach wikis and apps)
     return bool(row["code_challenge"]) and not pkce_matches(row["code_challenge"], verifier)
 
 
@@ -265,8 +322,9 @@ def account_authorized_client(account_id: str, client_id: str) -> bool:
     """True while the account holds a live access token for this wiki."""
     if not account_may_sign_in(accounts.get(account_id)):
         return False
+    # A token an acting administrator holds never lets a wiki link the account: links are the person's own.
     return bool(db.scalar("SELECT 1 FROM hosting_oauth_access_tokens WHERE account_id = ? AND client_id = ? "
-                          "AND expires_at > ?", (account_id, client_id, now_sql())))
+                          "AND expires_at > ? AND act_account_id IS NULL", (account_id, client_id, now_sql())))
 
 
 # Remembered consent and connected wikis
@@ -367,3 +425,62 @@ def signin_url(inst: dict[str, Any], base: str | None = None) -> str:
     if not base or not enabled() or not inst.get("oauth_client_id") or inst.get("status") == "terminated":
         return base
     return base.rstrip("/") + "/platform-oauth/login"
+
+
+# Sign-up from an app (prompt=create)
+
+# The authorize request a sign-up continues, kept while the new account waits (email, approval).
+SIGNUP_RETURN_KEY = "hosting_signup_return"
+# A resumed request is useful while the client still knows its state (wikis and apps keep it 10 minutes).
+SIGNUP_RESUME_SECONDS = 600
+
+
+def signup_state() -> str:
+    """What sign-up is, for clients: ``open`` (approval or not), ``invite`` or ``closed``."""
+    return settings.signup_mode()
+
+
+def continuing_client(next_url: str | None) -> dict[str, str] | None:
+    """The wiki or app the authorize request *next_url* (a path on the portal) continues to:
+    ``{"client_id", "name", "url"}``, where ``url`` opens its sign-in. None for any other path, and for a
+    client nobody may sign in to.
+
+    The name and the address come from the client's registration, never from the request.
+    """
+    from . import oauth_apps
+
+    if not next_url or not next_url.startswith("/oauth/authorize?") or len(next_url) > 4096:
+        return None
+    client_id = dict(parse_qsl(urlsplit(next_url).query)).get("client_id", "").strip()
+    inst = instance_for_client(client_id)
+    if inst is not None:
+        address = signin_url(inst)
+        return {"client_id": client_id, "name": inst["subdomain"], "url": address} if address else None
+    app = oauth_apps.for_client(client_id)
+    if app is None or app["status"] != "approved":
+        return None
+    address = app["homepage_url"] or next(
+        (f"{origin}/" for origin in map(_origin, app["redirect_uris"]) if origin), "")
+    return {"client_id": client_id, "name": app["name"], "url": address} if address else None
+
+
+def remember_signup_return(next_url: str) -> None:
+    """Keep the authorize request a sign-up continues, for the pages a new account may have to pass first."""
+    if continuing_client(next_url) is not None:
+        session[SIGNUP_RETURN_KEY] = {"next": next_url, "at": time.time()}
+
+
+def signup_return() -> dict[str, str] | None:
+    """The wiki or app this browser's new account came from (see :func:`continuing_client`), or None."""
+    kept = session.get(SIGNUP_RETURN_KEY)
+    return continuing_client(kept.get("next")) if isinstance(kept, dict) else None
+
+
+def resume_signup() -> str | None:
+    """The authorize request to go back to now (and forget), while the client still knows it; else None."""
+    kept = session.pop(SIGNUP_RETURN_KEY, None)
+    if not isinstance(kept, dict) or not isinstance(kept.get("at"), (int, float)):
+        return None
+    if not 0 <= time.time() - kept["at"] <= SIGNUP_RESUME_SECONDS or continuing_client(kept.get("next")) is None:
+        return None
+    return str(kept["next"])

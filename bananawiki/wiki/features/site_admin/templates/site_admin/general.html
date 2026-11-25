@@ -11,7 +11,16 @@
 <form method="post" action="{{ url_for('site_admin.general', section=None if section == sections[0][0] else section) }}" class="form form--narrow admin-settings" id="site-settings-form" novalidate>
   {{ forms.csrf() }}
   <input type="hidden" name="section" value="{{ section }}">
-  {% for item in fields if item.shown() %}{% include "site_admin/_field.html" %}{% endfor %}
+  {% for item in fields if item.shown() and not item.advanced %}{% include "site_admin/_field.html" %}{% endfor %}
+  {% set advanced = namespace(items=[], refused=false) %}
+  {% for item in fields if item.shown() and item.advanced %}{% set advanced.items = advanced.items + [item] %}{% if item.name in errors %}{% set advanced.refused = true %}{% endif %}{% endfor %}
+  {% if advanced.items %}
+  {#- Opened when one of them was refused, so the message shows. -#}
+  <details class="disclosure"{% if advanced.refused %} open{% endif %}>
+    <summary>{{ t('site_admin.settings.advanced') }}</summary>
+    <div class="form">{% for item in advanced.items %}{% include "site_admin/_field.html" %}{% endfor %}</div>
+  </details>
+  {% endif %}
   {% if section == 'uploads' and platform_blacklist %}
   <p class="hint">{{ t('site_admin.settings.platform_blacklist', extensions=platform_blacklist|join(', ')) }}</p>
   {% endif %}

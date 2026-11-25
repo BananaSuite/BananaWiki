@@ -13,9 +13,10 @@ from bananawiki.wiki.features.kanban import fields, history
 from bananawiki.wiki.features.kanban import service as kanban_service
 from bananawiki.wiki.features.kanban import store as kanban_store
 
+from .access_support import members_see
 from .api_support import call, enable_api, issue
 from .pages_support import in_app
-from .test_kanban import as_client, board_id_from, columns, new_ticket, set_settings
+from .test_kanban import as_client, board_id_from, columns, new_ticket
 
 
 @pytest.fixture
@@ -52,7 +53,7 @@ def test_columns_start_not_done_and_the_flag_is_saved_validated_and_synced(admin
 
 
 def test_only_writers_mark_a_column_done(app, admin_client, db, board, make_user, login):
-    set_settings(db, kanban_access="all")
+    members_see(db)
     reader = as_client(app, login, make_user("reader"))
     column_id = columns(admin_client, board)[2]["id"]
     assert _mark(reader, column_id).status_code == 403

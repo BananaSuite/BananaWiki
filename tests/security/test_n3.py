@@ -189,7 +189,8 @@ def test_nw2_1_a_deep_tree_costs_a_page_view_no_more_than_a_flat_one(app, make_u
 
 
 def test_nw2_2_builder_publish_is_rate_limited(app, client, make_user, login, db, frozen_limiter_clock):
-    db.execute("UPDATE site_settings SET page_builder_enabled = 1, page_builder_access = 'editor' WHERE id = 1")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1 WHERE id = 1")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
     login(client, make_user("eve", role="editor"))
     make_page(app, "Target", "x")
     page_id = db.scalar("SELECT id FROM pages WHERE slug = 'target'")

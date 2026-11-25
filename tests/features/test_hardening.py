@@ -89,7 +89,6 @@ def _canvas_editor(app, make_user, login, db):
     from bananawiki.wiki import registry
 
     _run(app, lambda: registry.set_enabled("canvas", True))
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'all' WHERE id = 1")
     client = app.test_client()
     login(client, make_user("drawer", role="editor"))
     return client

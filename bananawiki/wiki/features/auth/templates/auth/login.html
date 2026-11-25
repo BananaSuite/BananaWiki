@@ -14,6 +14,7 @@
   {{ slot('auth.login.below_form', next_url=next_url) }}
   {% if not password_sign_in %}
   <p class="small muted">{{ t('auth.signin_mode.platform_only_notice') }}</p>
+  {% if hosting_signup %}<p class="small">{{ t('auth.login.no_account') }} <a href="{{ url_for('auth.platform_oauth_login', create=1, next=next_url or None) }}">{{ t('auth.signup.link') }}</a></p>{% endif %}
   {% elif signup_available %}
   <p class="small">{{ t('auth.login.no_account') }} <a href="{{ url_for('auth.signup') }}">{{ t('auth.signup.link') }}</a></p>
   {% endif %}

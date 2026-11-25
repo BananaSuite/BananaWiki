@@ -20,23 +20,26 @@ Apri **Amministrazione** dal menu dell'account.
 
 * **Pannello**: account in attesa di approvazione, account sospesi, traffico.
 * **Utenti**: crea account, approva o rifiuta iscrizioni, cambia i ruoli,
-  assegna ruoli personalizzati, imposta permessi individuali e accesso alle
-  categorie, sospendi, reimposta password, chiudi sessioni, impersona (per
+  assegna ruoli personalizzati, cambia i permessi e l'accesso alle categorie
+  di una persona in aggiunta al suo ruolo (la pagina dell'account riassume
+  cosa può fare), sospendi, reimposta password, chiudi sessioni, impersona (per
   vedere la wiki come un'altra persona; viene registrato). La pagina
   **Cronologia** di un account elenca i suoi nomi utente precedenti, che
   nessun altro può prendere: da lì puoi liberarne uno quando serve a un altro
   account.
-* **Ruoli personalizzati**: insiemi di permessi e limiti di categoria per
-  gruppi di persone.
+* **Richieste di accesso**: spunta **Permetti di chiedere l'accesso in
+  modifica** perché chi può leggere una pagina ma non modificarla possa
+  chiederlo; qui approvi o rifiuti (vedi
+  [permessi](../../permissions.md#asking-for-edit-access)).
 * **Codici d'invito**: codici per l'iscrizione, con numero di usi, scadenza
   e ruolo.
-* **Sessioni**: tutte le sessioni attive; disconnetti tutti; disconnessione
-  automatica giornaliera.
+* **Sessioni**: tutte le sessioni attive; disconnetti tutti.
 * **Impostazioni del sito**: nome, fuso orario, modalità pubblica, iscrizione
-  e approvazione, modalità manutenzione, sessione unica, protezione dai bot,
-  caricamenti, bozze, esportazioni.
-* **Modalità BM**: la modalità semplice. Attivala per tenere la wiki semplice,
-  poi scegli quali funzioni restano e cosa diventa più semplice (una barra
+  e approvazione, modalità manutenzione, sessione unica, disconnessione
+  giornaliera, protezione dai bot, caricamenti, bozze, esportazione in PDF.
+* **Modalità BM**: la modalità semplice. Attivala per tenere la wiki semplice:
+  le funzioni pensate per wiki più grandi si nascondono (attivane una in
+  **Plugin** per tenerla) e le schermate si semplificano (una barra
   dell'editor più corta, meno azioni sulle pagine, pagine senza cronologia né
   etichette di difficoltà, una barra laterale con solo pagine, Kanban e
   canvas, impostazioni più brevi, un menu di amministrazione breve, Kanban e
@@ -55,13 +58,10 @@ Apri **Amministrazione** dal menu dell'account.
   in inglese, italiano o tedesco) come categoria di pagine.
 * **Migrazione del sito**: esporta l'intera wiki oppure importane una (questo
   sostituisce tutto, account compresi).
-* **Canvas**: chi può usare i canvas e chi può crearli o importarli (di base
-  solo gli amministratori). Per permettere a una sola persona di creare
-  canvas senza aprire la creazione a tutto il suo ruolo, spunta **Creare
-  canvas** nel suo ruolo personalizzato o nei suoi permessi individuali; il
-  permesso predefinito degli editor da solo non basta. La prima volta che
-  limiti le categorie di un editor in **Accesso editor** il permesso viene
-  tolto: spuntalo di nuovo in **Permessi** se deve continuare a creare canvas.
+* **Ruoli**: cosa può fare chi ha il ruolo Utente o Editor (i membri creano
+  pagine, bacheche e canvas e lavorano sui propri; gli editor modificano anche
+  quelli di tutti), e i ruoli personalizzati per i gruppi che hanno bisogno di
+  altro.
 * **Eliminazione in blocco**, **Markdown in blocco**, **Registro di
   controllo**, **Server** e le pagine delle singole funzioni (annunci,
   distintivi, chat, lettura ad alta voce…).

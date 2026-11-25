@@ -32,8 +32,8 @@
   "contributions.field.reason": "Motivo",
   "contributions.field.reason_hint": "Cosa hai cambiato e perché.",
   "contributions.field.title": "Titolo",
-  "contributions.mine_title": "I miei contributi",
-  "contributions.nav.mine": "I miei contributi",
+  "contributions.mine_title": "Le mie modifiche proposte",
+  "contributions.nav.mine": "Le mie modifiche proposte",
   "contributions.nav.review": "Modifiche proposte",
   "contributions.no_content_change": "Il contenuto non è cambiato.",
   "contributions.no_text_withdrawn": "La proposta è stata ritirata da chi l'aveva fatta. Il suo testo non viene più conservato.",
@@ -67,6 +67,7 @@
   "contributions.quota.requests_title": "Richieste di quota",
   "contributions.quota.reviewed": "Richiesta di {user} esaminata.",
   "contributions.quota.set_for": "Quota di {user}",
+  "contributions.quota.set_button": "Imposta quota",
   "contributions.quota.set_hint": "-1 significa illimitato. Lascia vuoto per il valore predefinito.",
   "contributions.quota.status.approved": "approvata",
   "contributions.quota.status.cancelled": "annullata",
@@ -81,10 +82,7 @@
   "contributions.review": "Esamina",
   "contributions.review_reason": "Nota per l'autore",
   "contributions.review_title": "Modifiche proposte",
-  "contributions.setting.contribution_quota_auto_approve_max": "Approva in automatico fino a (proposte)",
-  "contributions.setting.contribution_quota_auto_approve_max_hint": "Le richieste fino a questo numero sono approvate automaticamente. 0 significa che decide sempre un amministratore.",
   "contributions.setting.default_contribution_quota": "Proposte in attesa per utente",
-  "contributions.setting.quota_request_cooldown_hours": "Attesa tra richieste di quota (ore)",
   "contributions.settings_title": "Impostazioni",
   "contributions.status.approved": "Approvata",
   "contributions.status.denied": "Rifiutata",
@@ -105,5 +103,5 @@
   "contributions.withdrawn": "Proposta ritirata.",
   "contributions.withdrawn_can_edit": "Proposta ritirata. Ora puoi modificare direttamente questa pagina.",
   "feature.contributions.description": "Chi non può modificare una pagina può proporre modifiche che i revisori approvano.",
-  "feature.contributions.name": "Approvazione dei contributi"
+  "feature.contributions.name": "Modifiche proposte"
 }

@@ -164,7 +164,7 @@ def test_platform_mode_shows_only_the_portal(build):
     page = wiki.test_client().get("/login?next=/page/home").get_data(as_text=True)
     assert 'name="password"' not in page and 'href="/signup"' not in page
     assert 'class="btn btn--primary" href="/platform-oauth/login?next=/page/home"' in page
-    assert "your account on this wiki is created the first time you sign in" in page
+    assert "Your account here is created when you first sign in" in page
     assert "/login/recovery" not in page, "the recovery page is not advertised"
 
 
@@ -272,11 +272,11 @@ def test_the_host_overrides_the_wiki_and_locks_the_setting(build, portal):
     chief = user_in(wiki, "chief", role="admin")
     client = wiki.test_client()
     client.post("/login/recovery", data={"username": "chief", "password": PASSWORD})
-    page = client.get("/admin/settings?section=signin").get_data(as_text=True)
+    page = client.get("/admin/settings?section=security").get_data(as_text=True)
     assert '<select id="f-signin_mode" name="signin_mode" disabled' in page
     assert '<option value="platform" selected>' in page
     assert "Set by your hosting provider." in page
-    response = client.post("/admin/settings?section=signin", data={"section": "signin", "signin_mode": "local"})
+    response = client.post("/admin/settings?section=security", data={"section": "security", "signin_mode": "local"})
     assert response.status_code == 302
     assert database(wiki).scalar("SELECT signin_mode FROM site_settings") == "both"
     assert mode_of(wiki) == "platform"
@@ -298,14 +298,14 @@ def test_administrators_choose_the_mode(build, portal):
     chief = user_in(wiki, "chief", role="admin")
     client = wiki.test_client()
     password_sign_in(client, chief)
-    page = client.get("/admin/settings?section=signin").get_data(as_text=True)
+    page = client.get("/admin/settings?section=security").get_data(as_text=True)
     assert '<select id="f-signin_mode" name="signin_mode"' in page and "disabled" not in page.split("f-signin_mode")[1][:60]
     assert "/login/recovery" in page, "the help text names the recovery page"
-    assert client.post("/admin/settings?section=signin", data={"section": "signin", "signin_mode": "local"}) \
+    assert client.post("/admin/settings?section=security", data={"section": "security", "signin_mode": "local"}) \
         .status_code == 302
     assert mode_of(wiki) == "local"
     assert audit_rows(wiki, "settings.updated")[-1]["details"].find("signin_mode") >= 0
-    refused = client.post("/admin/settings?section=signin", data={"section": "signin", "signin_mode": "nonsense"})
+    refused = client.post("/admin/settings?section=security", data={"section": "security", "signin_mode": "nonsense"})
     assert refused.status_code == 400 and mode_of(wiki) == "local"
 
 
@@ -314,17 +314,17 @@ def test_switching_to_hosting_only_needs_your_own_link(build, portal):
     chief = user_in(wiki, "chief", role="admin")
     client = wiki.test_client()
     password_sign_in(client, chief)
-    refused = client.post("/admin/settings?section=signin", data={"section": "signin", "signin_mode": "platform"})
+    refused = client.post("/admin/settings?section=security", data={"section": "security", "signin_mode": "platform"})
     assert refused.status_code == 400
-    assert "Link your own account to a hosting account first" in refused.get_data(as_text=True)
+    assert "Connect your own account to BananaWiki Hosting first" in refused.get_data(as_text=True)
     assert database(wiki).scalar("SELECT signin_mode FROM site_settings") == "both"
     link(wiki, portal, chief, "acct-chief")
-    assert client.post("/admin/settings?section=signin", data={"section": "signin", "signin_mode": "platform"}) \
+    assert client.post("/admin/settings?section=security", data={"section": "security", "signin_mode": "platform"}) \
         .status_code == 302
     assert mode_of(wiki) == "platform"
     # Saving the tab again once it is on needs nothing more.
     database(wiki).execute("DELETE FROM platform_oauth_links")
-    assert client.post("/admin/settings?section=signin", data={"section": "signin", "signin_mode": "platform"}) \
+    assert client.post("/admin/settings?section=security", data={"section": "security", "signin_mode": "platform"}) \
         .status_code == 302
 
 
@@ -333,8 +333,8 @@ def test_the_setting_is_hidden_without_platform_sign_in_and_old_forms_keep_it(bu
     chief = user_in(unconfigured, "chief", role="admin")
     client = unconfigured.test_client()
     password_sign_in(client, chief)
-    assert "signin_mode" not in client.get("/admin/settings?section=signin").get_data(as_text=True)
-    client.post("/admin/settings?section=signin", data={"section": "signin", "signin_mode": "platform"})
+    assert "signin_mode" not in client.get("/admin/settings?section=security").get_data(as_text=True)
+    client.post("/admin/settings?section=security", data={"section": "security", "signin_mode": "platform"})
     assert database(unconfigured).scalar("SELECT signin_mode FROM site_settings") == "both"
 
 

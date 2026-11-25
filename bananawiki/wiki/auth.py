@@ -29,7 +29,18 @@ import secrets
 from collections.abc import Callable
 from typing import Any
 
-from flask import abort, current_app, flash, g, jsonify, redirect, request, session, url_for
+from flask import (
+    abort,
+    current_app,
+    flash,
+    g,
+    has_request_context,
+    jsonify,
+    redirect,
+    request,
+    session,
+    url_for,
+)
 
 from ..core import crypto
 from ..core.timeutil import is_past, now_sql, parse, sql_in, utcnow
@@ -40,6 +51,8 @@ from .db import db
 from .i18n import t, tn
 
 SESSION_TOKEN_KEY = "auth_session_token"
+# A confirmation with the hosting portal (a fresh portal sign-in) stands for the password this long.
+REVERIFY_SECONDS = 10 * 60
 SESSION_CONFLICT_KEY = "_session_conflict"
 IMPERSONATION_LOG_KEY = "impersonation_log_id"
 TOUCH_INTERVAL_SECONDS = 300
@@ -163,7 +176,11 @@ def load_request_user() -> None:
             g.session_ended = True
         return
     real = _load_user(row["user_id"])
-    if real is None:
+    if real is None or (row.get("acting_admin_sub") and not settings.get("platform_allow_acting")):
+        # A hosting administrator's session ends at once when the wiki stops letting them in.
+        if real is not None:
+            db.execute("UPDATE user_sessions SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+                       (now_sql(), row["id"]))
         session.clear()
         g.session_ended = True
         return
@@ -217,6 +234,47 @@ def is_impersonating() -> bool:
     return bool(session.get("impersonator_id")) and g.get("real_user") is not None
 
 
+def acting() -> dict[str, Any] | None:
+    """While a hosting administrator is signed in as this account (the portal's ``act``): ``admin`` (their
+    portal name), ``sub`` (their portal id) and ``expires_at`` (when the session ends); None otherwise."""
+    row = g.get("auth_session") if has_request_context() else None
+    if not row or not row.get("acting_admin_sub"):
+        return None
+    return {"admin": row.get("acting_admin_name") or "", "sub": row["acting_admin_sub"],
+            "expires_at": row.get("acting_expires_at")}
+
+
+def on_behalf() -> bool:
+    """Whether this request is someone else's on the account's behalf (impersonation, or a hosting
+    administrator acting as it): the account's credentials and its own choices are then out of reach."""
+    return is_impersonating() or acting() is not None
+
+
+def signed_in_through_hosting() -> bool:
+    """Whether this session started with a hosting portal sign-in (``auth_method`` ``platform_oauth…``)."""
+    row = g.get("auth_session") if has_request_context() else None
+    return bool(row) and str(row.get("auth_method") or "").startswith("platform_oauth")
+
+
+def reverified_recently(user: dict[str, Any] | None) -> bool:
+    """Whether this session confirmed *user* with the hosting portal less than :data:`REVERIFY_SECONDS` ago
+    (it then stands for the password). Never on someone's behalf."""
+    row = g.get("auth_session") if has_request_context() else None
+    if not row or not user or str(row["user_id"]) != str(user["id"]) or on_behalf():
+        return False
+    confirmed = parse(row.get("reverified_at"))
+    return confirmed is not None and 0 <= (utcnow() - confirmed).total_seconds() <= REVERIFY_SECONDS
+
+
+def mark_reverified() -> None:
+    """Record that this session confirmed its account with the hosting portal just now."""
+    row = g.get("auth_session")
+    if row:
+        now = now_sql()
+        db.execute("UPDATE user_sessions SET reverified_at = ? WHERE id = ?", (now, row["id"]))
+        g.auth_session = {**row, "reverified_at": now}
+
+
 def refresh_current_user() -> None:
     user = g.get("user")
     if user:
@@ -227,13 +285,22 @@ def refresh_current_user() -> None:
 # Sign-in and sign-out
 
 
-def start_session(user: dict[str, Any], *, remember: bool = False, method: str = "password") -> str:
-    """Create a login session for *user* and bind it to the cookie."""
+def start_session(user: dict[str, Any], *, remember: bool = False, method: str = "password",
+                  acting: dict[str, Any] | None = None) -> str:
+    """Create a login session for *user* and bind it to the cookie.
+
+    *acting* (``sub``, ``admin``, ``expires_at``): a hosting administrator signs in as *user*; the session
+    is never remembered and ends at ``expires_at``.
+    """
     cfg = current_app.config["BW"]
     raw = secrets.token_urlsafe(32)
     session_id = secrets.token_urlsafe(32)
     now = now_sql()
+    remember = remember and acting is None
     days = cfg.remember_me_days if remember else cfg.session_days
+    expires = sql_in(days=days)
+    if acting is not None:
+        expires = min(expires, acting["expires_at"])
     user_agent = (request.headers.get("User-Agent") or "")[:500]
     with db.transaction():
         current = _load_user(user["id"])
@@ -252,9 +319,11 @@ def start_session(user: dict[str, Any], *, remember: bool = False, method: str =
             )
         db.execute(
             "INSERT INTO user_sessions (id, token_hash, user_id, created_at, last_seen_at, expires_at, remember_me, "
-            "auth_method, ip_address, last_ip, user_agent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, crypto.sha256_hex(raw), user["id"], now, now, sql_in(days=days), 1 if remember else 0,
-             method[:40], client_ip(), client_ip(), user_agent),
+            "auth_method, ip_address, last_ip, user_agent, acting_admin_sub, acting_admin_name, acting_expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, crypto.sha256_hex(raw), user["id"], now, now, expires, 1 if remember else 0,
+             method[:40], client_ip(), client_ip(), user_agent, acting["sub"][:200] if acting else None,
+             acting["admin"][:200] if acting else None, acting["expires_at"] if acting else None),
         )
         db.execute("UPDATE users SET last_login_at = ? WHERE id = ?", (now, user["id"]))
     _end_impersonation_log()
@@ -269,6 +338,7 @@ def start_session(user: dict[str, Any], *, remember: bool = False, method: str =
     session.permanent = bool(remember)
     session["_remember_me"] = bool(remember)
     g.user = g.real_user = _load_user(user["id"])
+    g.auth_session = db.one("SELECT * FROM user_sessions WHERE id = ?", (session_id,))
     return session_id
 
 
@@ -284,7 +354,7 @@ def end_session() -> None:
     session.clear()
     if language:
         session["interface_language"] = language
-    g.user = g.real_user = None
+    g.user = g.real_user = g.auth_session = None
 
 
 def revoke_sessions(user_id: str, *, except_session_id: str | None = None) -> int:
@@ -370,8 +440,8 @@ def pending_account_step(user: dict[str, Any]) -> str | None:
     """The endpoint of a step *user* must complete before anything else, or None."""
     from .registry import intercept
 
-    if is_impersonating():
-        return None
+    if on_behalf():
+        return None  # the account's own steps (a new password, onboarding) are the person's to take
     if user.get("force_password_change"):
         return "auth.force_password_change"
     if user.get("onboarding_required"):
@@ -383,18 +453,39 @@ def pending_account_step(user: dict[str, Any]) -> str | None:
 # Permission checks
 
 
+def role_defaults(role: str) -> frozenset[str]:
+    """The defaults of base *role* on this wiki, read once per request."""
+    if not has_request_context():
+        return perms.role_defaults(db, role)
+    cache = g.get("_role_defaults")
+    if cache is None:
+        cache = g._role_defaults = {}
+    if role not in cache:
+        cache[role] = perms.role_defaults(db, role)
+    return cache[role]
+
+
+def forget_role_defaults() -> None:
+    """After the defaults of a base role changed in this request."""
+    if has_request_context():
+        g.pop("_role_defaults", None)
+        g.pop("_grants", None)
+
+
 def grants(user: dict[str, Any] | None = None) -> perms.Grants | None:
     user = current_user() if user is None else user
     if not user:
         return None
+    role = user.get("role") or "user"
+    defaults = role_defaults(role) if role in perms.BASE_ROLES else None
     if user is g.get("user"):
         cached = g.get("_grants")
         if cached is not None:
             return cached
-        result = perms.load_grants(db, user)
+        result = perms.load_grants(db, user, defaults)
         g._grants = result
         return result
-    return perms.load_grants(db, user)
+    return perms.load_grants(db, user, defaults)
 
 
 def has_permission(key: str, user: dict[str, Any] | None = None) -> bool:
@@ -406,14 +497,39 @@ def has_permission(key: str, user: dict[str, Any] | None = None) -> bool:
     return perms.grants_permission(resolved, key, is_enabled)
 
 
-def has_explicit_permission(key: str, user: dict[str, Any] | None = None) -> bool:
-    """*key* comes from the user's custom role or individual permissions (see :func:`perms.grants_explicitly`)."""
+def holders_of(key: str, users: list[dict[str, Any]]) -> set[str]:
+    """Ids of the *users* (rows with ``id``, ``role``, ``custom_role_id``, ``chat_disabled``) who hold *key*.
+
+    The same answer as :func:`has_permission` for each of them, in three queries for the whole list.
+    """
     from .registry import is_enabled
 
-    resolved = grants(user)
-    if resolved is None:
-        return False
-    return perms.grants_explicitly(resolved, key, is_enabled)
+    key = perms.canonical(key)
+    permission = perms.CATALOGUE.get(key)
+    if permission is None or (permission.feature and not is_enabled(permission.feature)):
+        return set()
+    custom: dict[Any, set[str]] = {role_id: set() for role_id in db.column("SELECT id FROM custom_roles")}
+    for row in db.all("SELECT role_id, permission_key FROM custom_role_permissions"):
+        custom.setdefault(row["role_id"], set()).add(row["permission_key"])
+    # People's own changes, the whole table in one query.
+    changes: dict[str, dict[str, bool]] = {}
+    for row in db.all("SELECT user_id, permission_key, granted FROM user_permissions"):
+        changes.setdefault(row["user_id"], {})[row["permission_key"]] = bool(row["granted"])
+    found = set()
+    for user in users:
+        role = user.get("role") or "user"
+        if role in perms.ADMIN_ROLES:
+            found.add(user["id"])
+            continue
+        if key not in perms.assignable(role) or (key.startswith("chat.") and user.get("chat_disabled")):
+            continue
+        role_id = user.get("custom_role_id")
+        start = perms.sanitize(role, custom[role_id]) if role_id and role_id in custom else role_defaults(role)
+        own = changes.get(user["id"])
+        held = perms.sanitize(role, perms.changed(role, start, own)) if own else start
+        if key in held:
+            found.add(user["id"])
+    return found
 
 
 def has_role(minimum: str, user: dict[str, Any] | None = None) -> bool:
@@ -433,6 +549,8 @@ def can_impersonate(actor: dict[str, Any], target: dict[str, Any] | None) -> boo
     """
     if target is None or actor["id"] == target["id"] or not is_admin(actor) or account_block(actor):
         return False
+    if acting() is not None:
+        return False  # a hosting administrator acting as an account never takes on a third one
     if (is_admin(target) or target.get("is_superuser")) and not actor.get("is_superuser"):
         return False
     return account_block(target) is None
@@ -448,12 +566,6 @@ def can_read_category(category_id: int | None, user: dict[str, Any] | None = Non
 def can_write_category(category_id: int | None, user: dict[str, Any] | None = None) -> bool:
     resolved = grants(user)
     return resolved is not None and perms.can_write_category(resolved, category_id)
-
-
-def minimum_role_allows(setting_value: str | None, user: dict[str, Any] | None = None) -> bool:
-    """For ``*_access`` settings holding a minimum role name ('user'/'editor'/'admin')."""
-    minimum = setting_value if setting_value in perms.ROLE_RANK else "admin"
-    return has_role(minimum, user)
 
 
 # Decorators

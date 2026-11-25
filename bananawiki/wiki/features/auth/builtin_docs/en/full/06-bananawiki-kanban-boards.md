@@ -12,7 +12,7 @@ A ticket has a description in Markdown, labels, a priority, a due date, assignee
 
 ## Access and sharing
 
-Administrators decide which roles can use Kanban. The board's creator shares it with people or roles, for viewing or writing, from **More → Sharing**.
+Members create boards and manage their own. A new board is seen only by its creator; from **More → Sharing** the creator makes it visible to all members (or also to visitors while the wiki is public) and shares it with people or roles, to view or to edit. Editors change every board they can open. Administrators can change these defaults under **Administration → Roles**.
 
 ## History and export
 

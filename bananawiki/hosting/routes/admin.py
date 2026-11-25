@@ -33,6 +33,7 @@ from ...core.timeutil import now_sql, sql_in
 from ...core.web import one_line
 from .. import (
     accounts,
+    acting,
     attention,
     auth,
     banners,
@@ -215,7 +216,9 @@ def account_page(account_id: str):
                            deletion_remaining=remaining,
                            deletion_at=sql_in(seconds=remaining) if remaining is not None else None,
                            domain_policy=settings.custom_domains_policy(), domains_configured=domains.configured(),
-                           email_removable=accounts.email_removable())
+                           email_removable=accounts.email_removable(),
+                           can_act=not auth.impersonating() and acting.may_act_as(account(), target),
+                           act_minutes=acting.minutes(), act_app_signin=acting.app_signin_enabled())
 
 
 @bp.post("/admin/accounts/create")
@@ -265,16 +268,24 @@ def toggle_admin(account_id: str):
 @auth.admin_required
 @rate_limit(10)
 def impersonate(account_id: str):
+    """Act as an account: the administrator's password (or two-step code) again and a reason (see :mod:`..acting`)."""
     target = _account_or_404(account_id)
     if auth.impersonating():
         flash(t("hosting.admin.already_impersonating"), "error")
         return _dashboard()
-    if (target["id"] == account()["id"] or target["is_admin"] or target["deleted_at"]
-            or accounts.is_suspended(target) or target["approval_status"] != "approved"):
+    admin = account()
+    if not acting.may_act_as(admin, target):
         flash(t("hosting.admin.cannot_impersonate"), "error")
         return _dashboard()
-    auth.start_impersonation(target)
-    events.record("account", target["id"], "account.impersonated", auth.real_account()["id"])  # type: ignore[index]
+    reason = " ".join((request.form.get("reason") or "").split())
+    back_here = redirect(url_for("admin.account_page", account_id=account_id) + "#act")
+    if not 5 <= len(reason) <= acting.REASON_MAX:
+        flash(t("hosting.admin.act_reason_needed", max=acting.REASON_MAX), "error")
+        return back_here
+    if not acting.confirm(admin, request.form.get("current_password") or "", request.form.get("code") or ""):
+        flash(t("hosting.admin.act_confirm_wrong"), "error")
+        return back_here
+    auth.start_impersonation(target, reason)
     _done("hosting.admin.impersonating", username=target["username"])
     return redirect(url_for("dashboard.dashboard"))
 
@@ -556,14 +567,16 @@ def signup_mode():
 
     The approval box stays as it is: choosing another mode never ends
     approval behind the administrator's back, nor approves anyone unasked.
+    The old mode "approval" turns it on (``settings.parse_signup_mode``).
     """
-    mode = (request.form.get("signup_mode") or "").strip().lower()
-    if mode not in settings.SIGNUP_MODES:
+    parsed = settings.parse_signup_mode(request.form.get("signup_mode") or "")
+    if parsed is None:
         flash(t("hosting.admin.invalid_signup_mode"), "error")
         return _account_list()
+    mode, forced = parsed
     before = dict(settings.load(fresh=True))
     try:
-        _change_signups(mode, 1 if settings.flag("hosting_activation_required") else 0)
+        _change_signups(mode, 1 if forced or settings.flag("hosting_activation_required") else 0)
     except _ConfirmPending as pending:
         return _confirm_pending(pending.count, url_for("admin.signup_mode"), url_for("admin.account_list"))
     _record_settings_change(before)
@@ -605,7 +618,12 @@ def delete_invite(invite_id: int):
 @bp.get("/admin/instances/<instance_id>")
 @auth.admin_required
 def instance(instance_id: str):
-    inst = _instance_or_404(instance_id)
+    return _render_instance(_instance_or_404(instance_id))
+
+
+def _render_instance(inst: dict[str, Any], status: int = 200, settings_form: dict[str, str] | None = None):
+    """The wiki's administration page; *settings_form*: what was typed in its settings, shown again after an error."""
+    instance_id = inst["id"]
     runtime_spec = instances.spec(inst, with_policy=False)
     users, total, quarantined, snapshots = [], 0, False, []
     try:
@@ -622,7 +640,9 @@ def instance(instance_id: str):
         feature_history=features.history(instance_id), domain=domains.binding(instance_id),
         domain_reason=domains.permission(inst), domains_configured=domains.configured(),
         events=events.recent("instance", instance_id, 50), collaborators=collaborators.list_for(instance_id),
-    )
+        settings_form=settings_form, platform_storage_mb=instances.cfg().limits.storage_limit_mb,
+        platform_upload_mb=int(settings.get("global_wiki_upload_max_size_mb", 100) or 100),
+    ), status
 
 
 def _instance_action(instance_id: str, action, success_key: str):
@@ -936,17 +956,50 @@ def reset_wiki(instance_id: str):
     return _credentials(inst, username, password, "reset")
 
 
+def _storage_choice(form) -> str:
+    """``platform``, ``none`` or ``custom``: the one storage-limit control, or what an older form sent (a "No
+    storage limit" box and a number field, empty for the platform's limit)."""
+    choice = (form.get("storage_limit") or "").strip()
+    if choice in ("platform", "none", "custom"):
+        return choice
+    if form.get("unlimited") == "1":
+        return "none"
+    return "custom" if (form.get("storage_limit_mb") or "").strip() else "platform"
+
+
+def _storage_limit_from(form) -> int | None:
+    """The stored value: None for the platform's limit, 0 for none, else the megabytes typed."""
+    choice = _storage_choice(form)
+    if choice == "custom":
+        return int_field("storage_limit_mb", minimum=1)
+    return 0 if choice == "none" else None
+
+
+def _upload_choice(form) -> str:
+    """``platform`` or ``custom``: the one upload-size control, or an older form's "Use the platform default"."""
+    choice = (form.get("upload_size") or "").strip()
+    if choice in ("platform", "custom"):
+        return choice
+    inherit = form.get("inherit_upload_size") == "1" or not (form.get("upload_max_size_mb") or "").strip()
+    return "platform" if inherit else "custom"
+
+
 @bp.post("/admin/instances/<instance_id>/storage-limit")
 @auth.admin_required
 @rate_limit(20)
 def storage_limit(instance_id: str):
     def act(inst):
-        limit = 0 if request.form.get("unlimited") == "1" else int_field("storage_limit_mb", minimum=1)
+        limit = 0 if _storage_choice(request.form) == "none" else int_field("storage_limit_mb", minimum=1)
         if not instances.set_storage_limit(inst, limit, actor_id=_actor()):
             raise ServiceError("hosting.instances.restart_failed")
 
     response = _instance_action(instance_id, act, "hosting.admin.limits_saved")
-    # A wiki suspended only for storage that fits within the new limit reopens now, not at the next pass.
+    _reopen_if_it_fits(instance_id)
+    return response
+
+
+def _reopen_if_it_fits(instance_id: str) -> None:
+    """A wiki suspended only for storage that fits within its new limit reopens now, not at the next pass."""
     inst = instances.get(instance_id)
     if inst is not None and inst["status"] == "suspended":
         try:
@@ -955,7 +1008,6 @@ def storage_limit(instance_id: str):
         except (ServiceError, RuntimeFailure) as error:
             log.warning("Storage suspension of %s not lifted: %s", one_line(instance_id),
                         one_line(getattr(error, "key", error)))
-    return response
 
 
 @bp.post("/admin/instances/<instance_id>/upload-policy")
@@ -963,13 +1015,66 @@ def storage_limit(instance_id: str):
 @rate_limit(10)
 def upload_policy(instance_id: str):
     def act(inst):
-        inherit = request.form.get("inherit_upload_size") == "1" or not (request.form.get("upload_max_size_mb") or "").strip()
+        inherit = _upload_choice(request.form) == "platform"
         size = None if inherit else int_field("upload_max_size_mb", minimum=1, maximum=2048)
         if not instances.set_upload_policy(inst, size, (request.form.get("upload_blocked_extensions") or "")[:2000],
                                            actor_id=_actor()):
             raise ServiceError("hosting.instances.restart_failed")
 
     return _instance_action(instance_id, act, "hosting.admin.limits_saved")
+
+
+INSTANCE_SETTINGS_FIELDS = ("mode", "storage_limit", "storage_limit_mb", "unlimited", "upload_size",
+                            "upload_max_size_mb", "inherit_upload_size", "upload_blocked_extensions")
+
+
+@bp.post("/admin/instances/<instance_id>/settings")
+@auth.admin_required
+@rate_limit(20)
+def instance_settings(instance_id: str):
+    """The page's one Save: how members sign in, the storage limit and the upload policy.
+
+    Every part is checked before any is stored, so a refused value stores nothing and the page comes back with
+    what was typed. Only the parts that changed are stored, each with the event it has when saved on its own
+    (``signin-mode``, ``storage-limit`` and ``upload-policy`` still save one part each), and the wiki restarts
+    once for all of them. The storage limit and the largest upload are each one choice: the platform's
+    default, a custom value, and for storage also no limit (stored as None, the megabytes, and 0).
+    """
+    inst = _instance_or_404(instance_id)
+    form = {key: request.form.get(key) or "" for key in INSTANCE_SETTINGS_FIELDS}
+    actor = _actor()
+    try:
+        if inst["status"] == "terminated":
+            raise ServiceError("hosting.instances.terminated")
+        mode = form["mode"].strip()
+        if mode not in instances.SIGNIN_MODES:
+            raise ServiceError("hosting.instances.signin_mode_invalid")
+        form["storage_limit"], form["upload_size"] = _storage_choice(form), _upload_choice(form)
+        limit = _storage_limit_from(form)
+        size = None if form["upload_size"] == "platform" else int_field("upload_max_size_mb", minimum=1, maximum=2048)
+        blocked = form["upload_blocked_extensions"][:2000]
+        changed = {
+            "mode": mode != (inst.get("platform_signin_mode") or ""),
+            "limit": limit != inst.get("storage_limit_mb"),
+            "upload": size != inst.get("upload_max_size_mb") or (
+                instances.blocked_extensions(blocked) != (inst.get("upload_blocked_extensions") or "")),
+        }
+        if changed["mode"]:  # first: it is the one part that may still refuse ("platform" with nobody linked)
+            instances.set_signin_mode(inst, mode, actor_id=actor, apply=False)
+        if changed["limit"]:
+            instances.set_storage_limit(inst, limit, actor_id=actor, apply=False)
+        if changed["upload"]:
+            instances.set_upload_policy(inst, size, blocked, actor_id=actor, apply=False)
+    except ServiceError as error:
+        flash_error(error)
+        return _render_instance(inst, 400, settings_form=form)
+    if any(changed.values()) and not instances.apply_policy(inst, actor_id=actor):
+        flash(t("hosting.admin.instance_settings_restart_failed"), "error")
+    else:
+        _done("hosting.admin.settings_saved")
+    if changed["limit"]:
+        _reopen_if_it_fits(instance_id)
+    return admin_back(instance_id)
 
 
 def _runtime_call(instance_id: str, call, success_key: str, event: str | None = None):
@@ -1285,12 +1390,43 @@ def _banner_form() -> tuple[dict[str, Any], list[str]]:
     return values, request.form.getlist("audience_account_ids")
 
 
+def _banner_typed() -> dict[str, Any]:
+    """What was typed in a banner's form, as its edit page shows a banner: shown again after a refused Save."""
+    form, custom = request.form, bool(request.form.get("custom_colors"))
+    return {
+        "content": form.get("content") or "", "color": form.get("color"), "visibility": form.get("visibility"),
+        "audience_mode": form.get("audience_mode"), "expires_at": (form.get("expires_at") or "").strip(),
+        "audience_ids": form.getlist("audience_account_ids"), "not_removable": bool(form.get("not_removable")),
+        "show_countdown": bool(form.get("show_countdown")), "is_active": bool(form.get("is_active")),
+        "custom_background": form.get("custom_background") if custom else None,
+        "custom_text_color": form.get("custom_text_color") if custom else None,
+    }
+
+
+def _banner_choices() -> dict[str, Any]:
+    return {"accounts": [a for a in accounts.all_accounts() if not a["deleted_at"]], "colors": banners.COLORS,
+            "visibilities": banners.VISIBILITIES, "audiences": banners.AUDIENCES}
+
+
 @bp.get("/admin/banners")
 @auth.admin_required
 def banners_page():
-    active_accounts = [a for a in accounts.all_accounts() if not a["deleted_at"]]
-    return render_template("hosting/admin/banners.html", all_banners=banners.list_all(), accounts=active_accounts,
-                           colors=banners.COLORS, visibilities=banners.VISIBILITIES, audiences=banners.AUDIENCES)
+    return render_template("hosting/admin/banners.html", all_banners=banners.list_all(), **_banner_choices())
+
+
+@bp.get("/admin/banners/<int:banner_id>")
+@auth.admin_required
+def banner_page(banner_id: int):
+    """One banner's edit page, with the one Save in its header (the list only links here)."""
+    banner = banners.get(banner_id)
+    if banner is None:
+        abort(404)
+    banner["audience_ids"] = banners.audience_of(banner_id)
+    return _render_banner(banner_id, banner)
+
+
+def _render_banner(banner_id: int, shown: dict[str, Any], status: int = 200):
+    return render_template("hosting/admin/banner.html", banner_id=banner_id, b=shown, **_banner_choices()), status
 
 
 @bp.post("/admin/banners/create")
@@ -1315,9 +1451,10 @@ def edit_banner(banner_id: int):
     try:
         values, ids = _banner_form()
         banners.update(banner_id, values, ids, bool(request.form.get("is_active")))
-        _done("hosting.banners.updated")
     except ServiceError as error:
         flash_error(error)
+        return _render_banner(banner_id, _banner_typed(), 400)
+    _done("hosting.banners.updated")
     return redirect(url_for("admin.banners_page"))
 
 
@@ -1464,7 +1601,8 @@ def _apply_to_all_running() -> int:
 # The sections of the settings page, in its order: the page's Save ("save_all") applies them all. Each is
 # still accepted as an action of its own (forms and scripts from before the single Save).
 SETTINGS_SECTIONS = (
-    "save_signups", "save_email", "save_notices", "save_notifications", "save_admin_mfa", "save_bot_protection",
+    "save_signups", "save_email", "save_notices", "save_notifications", "save_admin_mfa", "save_acting",
+    "save_bot_protection",
     "save_limits", "save_lifetime", "save_expired_wiki_permissions", "save_instance_url_suffix",
     "save_custom_domains", "save_wiki_features", "save_wiki_upload_policy", "save_tour", "save_tts_policy",
     "save_tts_gpu", "save_oauth", "save_api", "save_apps", "gdrive_save", "save_easter_eggs",
@@ -1496,12 +1634,10 @@ def _save_settings(action: str) -> str:
             {notice.kind: _checked(f"notice_{notice.kind}") for notice in notifications.NOTICES}))
     elif action == "save_wiki_features":
         before = (settings.flag("forbid_non_admin_public_wikis", True), settings.flag("forbid_non_admin_page_builder", True))
-        settings.update(
-            forbid_non_admin_public_wikis=_checked("forbid_non_admin_public_wikis"),
-            forbid_non_admin_page_builder=_checked("forbid_non_admin_page_builder"),
-            auto_approve_public_access_requests=_checked("auto_approve_public_access_requests"),
-            auto_approve_page_builder_requests=_checked("auto_approve_page_builder_requests"),
-        )
+        settings.update(**_feature_policy("public_access", "forbid_non_admin_public_wikis",
+                                          "auto_approve_public_access_requests"),
+                        **_feature_policy("page_builder", "forbid_non_admin_page_builder",
+                                          "auto_approve_page_builder_requests"))
         after = (settings.flag("forbid_non_admin_public_wikis", True), settings.flag("forbid_non_admin_page_builder", True))
         if before != after and _apply_to_all_running():
             flash(t("hosting.admin.some_restarts_failed"), "error")
@@ -1553,11 +1689,13 @@ def _save_settings(action: str) -> str:
         settings.update(grace_period_days=int_field("grace_period_days", 30, minimum=0, maximum=3650),
                         owner_renewal_enabled=_checked("owner_renewal_enabled"))
     elif action in ("save_signups", "save_activation"):  # save_activation: the form before 1.7
-        mode = request.form.get("signup_mode") or settings.signup_mode()
-        if mode not in settings.SIGNUP_MODES:
+        parsed = settings.parse_signup_mode(request.form.get("signup_mode") or settings.signup_mode())
+        if parsed is None:
             raise ServiceError("hosting.form.invalid_choice")
+        mode, forced = parsed
         timeout = seconds_from_form("act_timeout") if request.form.get("hosting_activation_denied_deletion_enabled") else -1
-        _change_signups(mode, _checked("hosting_activation_required"), hosting_activation_denied_timeout_seconds=timeout,
+        _change_signups(mode, 1 if forced else _checked("hosting_activation_required"),
+                        hosting_activation_denied_timeout_seconds=timeout,
                         signup_use_case_required=_checked("signup_use_case_required"))
     elif action == "save_instance_url_suffix":
         suffix = (request.form.get("instance_url_suffix") or "").strip().lower()
@@ -1584,6 +1722,11 @@ def _save_settings(action: str) -> str:
                         oauth_apps_per_account=int_field("oauth_apps_per_account", 5, minimum=0, maximum=100))
     elif action == "save_api":
         settings.update(api_enabled=_checked("api_enabled"))
+    elif action == "save_acting":
+        low, high = acting.MINUTES_RANGE
+        settings.update(admin_act_minutes=int_field("admin_act_minutes", acting.DEFAULT_MINUTES, minimum=low,
+                                                    maximum=high),
+                        admin_act_notify=_checked("admin_act_notify"), admin_app_signin=_checked("admin_app_signin"))
     elif action == "save_admin_mfa":
         if request.form.get("admin_mfa_required") and not account().get("totp_enabled"):
             raise ServiceError("hosting.mfa.enable_yours_first")
@@ -1600,7 +1743,8 @@ def _save_settings(action: str) -> str:
         url = (request.form.get("global_tts_gpu_url") or "").strip()
         if url and not url.startswith(("https://", "http://")):
             raise ServiceError("hosting.admin.invalid_url")
-        values: dict[str, Any] = {"global_tts_gpu_enabled": _checked("global_tts_gpu_enabled"),
+        # The address is the switch (schema 16); the old box is kept in step for older readers.
+        values: dict[str, Any] = {"global_tts_gpu_enabled": 1 if url else 0,
                                   "global_tts_gpu_url": url,
                                   "global_tts_gpu_timeout": int_field("global_tts_gpu_timeout", 120, minimum=5, maximum=3600)}
         token = request.form.get("global_tts_gpu_auth_token") or ""
@@ -1618,6 +1762,22 @@ def _save_settings(action: str) -> str:
     else:
         raise ServiceError("hosting.admin.unknown_action")
     return "hosting.admin.settings_saved"
+
+
+# Who turns on a restricted wiki feature: every owner, owners who ask and get it at once, or owners who ask
+# and wait for an administrator. One choice, stored as the feature's two columns (restricted, auto-approved).
+FEATURE_POLICIES = {"owners": (0, 0), "auto": (1, 1), "ask": (1, 0)}
+
+
+def _feature_policy(feature: str, restricted: str, auto: str) -> dict[str, int]:
+    """The two columns of *feature*'s policy from ``<feature>_policy`` (or the two boxes scripts may still send)."""
+    choice = request.form.get(f"{feature}_policy")
+    if choice is None:
+        return {restricted: _checked(restricted), auto: _checked(auto)}
+    if choice not in FEATURE_POLICIES:
+        raise ServiceError("hosting.form.invalid_choice")
+    forbid, approve = FEATURE_POLICIES[choice]
+    return {restricted: forbid, auto: approve}
 
 
 def _save_egg_list(raw: str) -> None:
@@ -1647,13 +1807,12 @@ PENDING_CHOICES = ("approve", "keep")
 def _change_signups(mode: str, activation: int, **other: Any) -> None:
     """Apply a sign-up mode and the approval box (plus *other* settings of the same form).
 
-    Approval applies in "Administrator approval" mode whatever the box says.
     When a change ends approval while accounts still wait, nothing changes
     until the administrator chose (``pending_accounts``) to approve them all
     or to keep them waiting for a decision each (:class:`_ConfirmPending`).
     """
     was = settings.approval_required()
-    waiting = len(accounts.pending()) if was and mode != "approval" and not activation else 0
+    waiting = len(accounts.pending()) if was and not activation else 0
     choice = request.form.get("pending_accounts", "")
     if waiting and choice not in PENDING_CHOICES:
         raise _ConfirmPending(waiting)
@@ -1772,6 +1931,14 @@ def settings_page():
                                     url_for("admin.settings_page", open="save_signups") + "#save_signups")
         except ServiceError as error:
             flash_error(error)
+            if "save_easter_eggs" in (action, failed) and "easter_egg_configs" in request.form:
+                # The refused list comes back as typed (as the wiki's editor does), not as stored.
+                _record_settings_change(before)
+                return render_template("hosting/admin/settings.html", **{
+                    **_settings_context(), "open_section": "save_easter_eggs",
+                    "egg_list": request.form.get("easter_egg_configs", ""),
+                    "eggs_on": {egg: bool(request.form.get(f"easter_{egg}")) for egg in settings.EASTER_EGGS},
+                }), 400
         except RuntimeFailure as error:
             flash(t(f"hosting.runtime.{error.code}"), "error")
         _record_settings_change(before)

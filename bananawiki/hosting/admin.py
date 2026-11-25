@@ -469,9 +469,15 @@ def cmd_instance_quarantine_plugins(args: argparse.Namespace) -> None:
 def cmd_settings_signup_mode(args: argparse.Namespace) -> None:
     from . import settings
 
-    settings.update(signup_mode=args.mode)
-    _audit("settings.signup_mode", {"mode": args.mode})
-    _print(args, {"ok": True, "signup_mode": args.mode}, f"Sign-up mode: {args.mode}.")
+    mode, forced = settings.parse_signup_mode(args.mode) or ("open", False)
+    values: dict[str, Any] = {"signup_mode": mode}
+    if forced or args.approval:
+        values["hosting_activation_required"] = 1 if forced or args.approval == "on" else 0
+    settings.update(**values)
+    approval = settings.approval_required()
+    _audit("settings.signup_mode", {"mode": mode, "approval": approval})
+    _print(args, {"ok": True, "signup_mode": mode, "approval": approval},
+           f"Sign-up mode: {mode}; administrator approval {'on' if approval else 'off'}.")
 
 
 def cmd_settings_email_pause(args: argparse.Namespace) -> None:
@@ -764,8 +770,11 @@ def parser() -> argparse.ArgumentParser:
     p.set_defaults(handler=cmd_app_delete)
 
     settings = groups.add_parser("settings", help="Platform settings").add_subparsers(dest="action", required=True)
-    p = settings.add_parser("signup-mode")
-    p.add_argument("mode", choices=("open", "invite", "approval", "closed"))
+    p = settings.add_parser("signup-mode", help="Who may sign up, and whether new accounts wait for approval")
+    p.add_argument("mode", choices=("open", "invite", "closed", "approval"),
+                   help='"approval" is the old name of "open --approval on"')
+    p.add_argument("--approval", choices=("on", "off"),
+                   help="New accounts wait for an administrator (unchanged if left out)")
     p.set_defaults(handler=cmd_settings_signup_mode)
     p = settings.add_parser("email-pause", help="Stop (on) or resume (off) every email the portal sends")
     p.add_argument("state", choices=("on", "off"))

@@ -6,7 +6,7 @@ from typing import Any
 
 from flask import abort, jsonify, request, url_for
 
-from ... import auth, settings, storage
+from ... import auth, storage
 from ...i18n import t
 from ...markdown import render
 from ..pages import uploads
@@ -130,8 +130,6 @@ def get_settings(board_id: int):
         "created_by_username": board["creator_username"],
         "shares": [{"share_type": s["share_type"], "target": s["target"], "access_level": s["access_level"],
                     "target_username": s["username"]} for s in service.shares(board)],
-        "kanban_access": settings.get("kanban_access") or "admin",
-        "kanban_write_access": settings.get("kanban_write_access") or "admin",
         "shareable_roles": access.shareable_roles(),
     })
 

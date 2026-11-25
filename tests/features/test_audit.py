@@ -49,23 +49,19 @@ def test_page_lists_and_filters_entries(admin_client, admin, db):
     assert "Page deleted" not in by_actor.split("<tbody>")[1]
 
 
-def test_retention_prunes_old_entries(app, owner_client, db):
+def test_retention_prunes_old_entries(app, owner_client, db, monkeypatch):
+    """A year, unless the server's operator sets BW_AUDIT_RETENTION_DAYS; no page changes it."""
     db.execute("INSERT INTO audit_log (created_at, action) VALUES (?, 'old')", (sql_in(days=-40),))
-    owner_client.post("/admin/audit/retention", data={"audit_log_retention_days": "30"})
-    assert db.scalar("SELECT audit_log_retention_days FROM site_settings") == 30
-    owner_client.post("/admin/audit/retention", data={"audit_log_retention_days": "-1"})
-    assert db.scalar("SELECT audit_log_retention_days FROM site_settings") == 30
+    page = owner_client.get("/admin/audit").get_data(as_text=True)
+    assert "audit_log_retention_days" not in page and "BW_AUDIT_RETENTION_DAYS" in page
+    assert owner_client.post("/admin/audit/retention", data={"audit_log_retention_days": "1"}).status_code == 404
+    assert app.extensions["bananawiki.scheduler"].run_due(force=True, only="audit.prune") == ["audit.prune"]
+    assert "old" in actions(db)
+    monkeypatch.setenv("BW_AUDIT_RETENTION_DAYS", "30")
     assert app.extensions["bananawiki.scheduler"].run_due(force=True, only="audit.prune") == ["audit.prune"]
     assert "old" not in actions(db)
     pruned = db.one("SELECT * FROM audit_log WHERE action = 'audit.pruned'")
     assert pruned is not None and '"deleted": 1' in pruned["details"], "pruning leaves a trace"
-
-
-def test_only_owners_and_superusers_shorten_the_retention(admin_client, db):
-    page = admin_client.get("/admin/audit").get_data(as_text=True)
-    assert "audit_log_retention_days" not in page
-    assert admin_client.post("/admin/audit/retention", data={"audit_log_retention_days": "1"}).status_code == 403
-    assert db.scalar("SELECT audit_log_retention_days FROM site_settings") == 365
 
 
 def test_disabled_feature_records_nothing(app, client, make_user, login, db):

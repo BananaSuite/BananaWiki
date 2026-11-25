@@ -4,13 +4,13 @@ BM mode replaced the "easy wiki" switch (``BW_EASY_WIKI``). While it is on:
 
 * **Features** that are not meant for a first wiki (``Feature.easy_wiki =
   False``: chats, quizzes, read aloud, the page builder, governance, custom
-  pages…) are hidden and off, until an administrator shows them in BM mode.
-  Any feature can be hidden in BM mode too. Nothing is deleted: a hidden
+  pages…) are hidden and off, until an administrator switches them on under
+  Admin → Plugins, which shows them in BM mode. Nothing is deleted: a hidden
   feature keeps its data and its own switch, and comes back as it was.
 * **Simplifications** declared by features (``Feature.simplifications``)
   hide the less used controls of the editor, the page actions, the
-  administration menu, kanban boards, canvases and so on. Each one is on by
-  default and can be turned off.
+  administration menu, kanban boards, canvases and so on. All of them apply
+  (choosing them one by one was retired in version 24).
 
 BM mode is on for the whole wiki (everyone is in it) or off. While it is off,
 each account can be in BM mode on its own (``users.bm_mode``): that person
@@ -211,8 +211,8 @@ def simplifications() -> list[Any]:
 
 
 def chosen(item: Any) -> bool:
-    """Whether simplification *item* is switched on (it applies only where :func:`applies`)."""
-    return choices().get(f"simplify:{item.id}", bool(item.default))
+    """Whether simplification *item* is switched on (it applies only where :func:`applies`): its default."""
+    return bool(item.default)
 
 
 def applied() -> list[str]:
@@ -241,7 +241,7 @@ def css() -> Markup:
 # Changing
 
 
-def save(*, mode: bool, features: dict[str, bool], simplifications_on: dict[str, bool],
+def save(*, mode: bool, features: dict[str, bool] | None = None, simplifications_on: dict[str, bool] | None = None,
          self_service_on: bool | None = None, new_accounts_on: bool | None = None) -> dict[str, str]:
     """Store BM mode, the choices per item (unknown items are dropped) and, when given, the rules for accounts.
 
@@ -255,6 +255,9 @@ def save(*, mode: bool, features: dict[str, bool], simplifications_on: dict[str,
     known_features = {feature.id for feature in registry().ordered()
                       if feature.toggle != "always" and not third_party(feature.id)}
     by_id = registry().features
+    if features is None:  # keep what Admin → Plugins chose
+        features = {key: feature_shown_choice(by_id[key]) for key in known_features}
+    simplifications_on = simplifications_on or {}
     kept: dict[str, str] = {}
     for key in known_features:
         # What the save hides that is not hidden now, by its tick box or by BM mode coming on.

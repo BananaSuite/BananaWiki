@@ -1,9 +1,12 @@
 # Scrivere le pagine
 
-Serve il ruolo di **editor** (o un ruolo personalizzato che lo permetta) e
-l'accesso in scrittura alla categoria. Chi può solo leggere spesso può
+I membri creano pagine e modificano quelle che hanno creato; gli editor
+modificano anche le pagine degli altri. In ogni caso serve l'accesso in
+scrittura alla categoria della pagina. Se puoi solo leggere una pagina,
+aprendo l'editor scopri il perché. A seconda della wiki puoi invece
 **proporre una modifica** (vedi
-[organizzare](organizzazione.md#proporre-una-modifica)).
+[organizzare](organizzazione.md#proporre-una-modifica)) oppure **chiedere di
+poter modificare**: un amministratore approva o rifiuta, e ricevi un avviso.
 
 ## Creare una pagina
 

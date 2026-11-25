@@ -165,3 +165,61 @@ def test_admin_profiles_are_moderated_only_by_owners_and_superusers(app, admin_c
     owner = app.test_client()
     login(owner, make_user("the_owner", role="owner"))
     assert owner.get(f"/admin/users/{other_admin['id']}/profile").status_code == 200
+
+
+# One Save per page: the field definitions and an account's tags are saved together.
+
+
+def test_the_definitions_pages_one_save_stores_every_row(admin_client, db):
+    first, second = _field(admin_client, db, "Colour"), _field(admin_client, db, "Site", "url")
+    page = admin_client.get("/admin/profile-fields").get_data(as_text=True)
+    assert f'name="label_{first}" form="definitions-form"' in page and 'value="update_all"' in page
+    response = admin_client.post("/admin/profile-fields", data={
+        "action": "update_all", f"label_{first}": "Favourite colour", f"field_type_{first}": "text",
+        f"label_{second}": "Site", f"field_type_{second}": "url"})
+    assert response.status_code == 302
+    assert db.column("SELECT label FROM user_profile_fields__definitions ORDER BY sort_order") == [
+        "Favourite colour", "Site"]
+    audited = db.all("SELECT target_id FROM audit_log WHERE action = 'profile_field.updated'")
+    assert [row["target_id"] for row in audited] == [str(first)], "only the row that changed"
+
+
+def test_a_refused_row_stores_no_row_and_keeps_what_was_typed(admin_client, db):
+    first, second = _field(admin_client, db, "Colour"), _field(admin_client, db, "Site", "url")
+    response = admin_client.post("/admin/profile-fields", data={
+        "action": "update_all", f"label_{first}": "Renamed", f"field_type_{first}": "text",
+        f"label_{second}": " ", f"field_type_{second}": "url"})
+    assert response.status_code == 400
+    assert 'value="Renamed"' in response.get_data(as_text=True)
+    assert db.column("SELECT label FROM user_profile_fields__definitions ORDER BY sort_order") == ["Colour", "Site"]
+
+
+def test_the_definitions_save_is_for_administrators(app, make_user, login, db, admin_client):
+    field = _field(admin_client, db, "Colour")
+    client = app.test_client()
+    login(client, make_user("plain"))
+    response = client.post("/admin/profile-fields", data={"action": "update_all", f"label_{field}": "X",
+                                                          f"field_type_{field}": "text"})
+    assert response.status_code in (302, 403)
+    assert db.scalar("SELECT label FROM user_profile_fields__definitions") == "Colour"
+
+
+def test_the_profile_save_stores_the_tags_too(admin_client, make_user, db):
+    bob = make_user("bob")
+    admin_client.post(f"/admin/users/{bob['id']}/tags", data={"action": "add_tag", "tag_label": "Mentor",
+                                                              "tag_color": "#aabbcc"})
+    tag = db.scalar("SELECT id FROM user_custom_tags WHERE user_id = ?", (bob["id"],))
+    page = admin_client.get(f"/admin/users/{bob['id']}/profile").get_data(as_text=True)
+    assert f'name="tag_label_{tag}" form="admin-profile-form"' in page
+    url = f"/admin/users/{bob['id']}/profile"
+    data = {"action": "edit_profile", "real_name": "Bob", "bio": "", "birth_date": ""}
+    # A refused tag stores nothing, the name neither.
+    admin_client.post(url, data={**data, f"tag_label_{tag}": " ", f"tag_color_{tag}": "#aabbcc"})
+    assert db.scalar("SELECT label FROM user_custom_tags WHERE id = ?", (tag,)) == "Mentor"
+    assert not db.scalar("SELECT real_name FROM user_profiles WHERE user_id = ?", (bob["id"],))
+    assert admin_client.post(url, data={**data, f"tag_label_{tag}": "Guide", f"tag_color_{tag}": "#112233"}
+                             ).status_code == 302
+    assert db.one("SELECT label, color FROM user_custom_tags WHERE id = ?", (tag,)) == {
+        "label": "Guide", "color": "#112233"}
+    details = db.scalar("SELECT details FROM audit_log WHERE action = 'user.profile_moderated' ORDER BY id DESC")
+    assert "tags" in details and "real_name" in details

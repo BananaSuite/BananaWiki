@@ -6,16 +6,16 @@
 <nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
   <li><a href="{{ url_for('badges.admin_list') }}">{{ t('badges.admin.title') }}</a></li><li aria-current="page">{{ badge.name }}</li>
 </ol></nav>
-<header class="page-header">
+<header class="page-header page-header--save">
   <h1 class="badge-name">{{ badge_mark(badge) }}{{ badge.name }}</h1>
+  <div class="page-header__actions"><button class="btn btn--primary" type="submit" form="badge-form" name="action" value="save">{{ t('common.save') }}</button></div>
 </header>
 <div class="section-stack">
 <section class="card">
-  <form method="post" class="form">
+  <form method="post" class="form" id="badge-form">
     {{ forms.csrf() }}
     {% with values = badge %}{% include "badges/_form.html" %}{% endwith %}
     <div class="btn-row">
-      <button class="btn btn--primary" type="submit" name="action" value="save">{{ t('common.save') }}</button>
       <button class="btn btn--danger-quiet" type="submit" name="action" value="delete" formnovalidate data-confirm="{{ t('badges.admin.delete_confirm') }}">{{ t('common.delete') }}</button>
     </div>
   </form>
@@ -29,7 +29,7 @@
     <div class="input-group input-group--compact">
       <label class="visually-hidden" for="award-username">{{ t('badges.admin.award_username') }}</label>
       <input id="award-username" name="username" maxlength="50" required placeholder="{{ t('auth.field.username') }}">
-      <button class="btn btn--primary" type="submit">{{ t('badges.admin.award') }}</button>
+      <button class="btn" type="submit">{{ t('badges.admin.award') }}</button>
     </div>
   </form>
   <form method="post" action="{{ url_for('badges.admin_revoke', badge_id=badge.id) }}" class="form badges-step">

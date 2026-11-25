@@ -6,7 +6,7 @@ from flask import Flask
 
 
 def register(app: Flask) -> None:
-    from . import account, admin, api, auth, dashboard, oauth, public
+    from . import account, admin, admin_links, api, auth, dashboard, oauth, public  # noqa: F401 - admin_links adds views to admin
 
     for module in (public, auth, account, dashboard, admin, api, oauth):
         app.register_blueprint(module.bp)

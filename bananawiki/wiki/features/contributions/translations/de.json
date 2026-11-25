@@ -32,8 +32,8 @@
   "contributions.field.reason": "Begründung",
   "contributions.field.reason_hint": "Was du geändert hast und warum.",
   "contributions.field.title": "Titel",
-  "contributions.mine_title": "Meine Beiträge",
-  "contributions.nav.mine": "Meine Beiträge",
+  "contributions.mine_title": "Meine Änderungsvorschläge",
+  "contributions.nav.mine": "Meine Änderungsvorschläge",
   "contributions.nav.review": "Änderungsvorschläge",
   "contributions.no_content_change": "Der Inhalt ist unverändert.",
   "contributions.no_text_withdrawn": "Der Vorschlag wurde von der vorschlagenden Person zurückgezogen. Sein Text wird nicht mehr aufbewahrt.",
@@ -67,6 +67,7 @@
   "contributions.quota.requests_title": "Kontingentanfragen",
   "contributions.quota.reviewed": "Anfrage von {user} geprüft.",
   "contributions.quota.set_for": "Kontingent von {user}",
+  "contributions.quota.set_button": "Quote festlegen",
   "contributions.quota.set_hint": "-1 bedeutet unbegrenzt. Leer lassen für den Standardwert.",
   "contributions.quota.status.approved": "genehmigt",
   "contributions.quota.status.cancelled": "zurückgezogen",
@@ -81,10 +82,7 @@
   "contributions.review": "Prüfen",
   "contributions.review_reason": "Anmerkung für die vorschlagende Person",
   "contributions.review_title": "Änderungsvorschläge",
-  "contributions.setting.contribution_quota_auto_approve_max": "Anfragen automatisch genehmigen bis zu (Vorschläge)",
-  "contributions.setting.contribution_quota_auto_approve_max_hint": "Anfragen bis zu dieser Zahl werden automatisch genehmigt. 0 bedeutet, dass immer ein Administrator entscheidet.",
   "contributions.setting.default_contribution_quota": "Wartende Vorschläge pro Person",
-  "contributions.setting.quota_request_cooldown_hours": "Wartezeit zwischen Kontingentanfragen (Stunden)",
   "contributions.settings_title": "Einstellungen",
   "contributions.status.approved": "Angenommen",
   "contributions.status.denied": "Abgelehnt",
@@ -105,5 +103,5 @@
   "contributions.withdrawn": "Vorschlag zurückgezogen.",
   "contributions.withdrawn_can_edit": "Vorschlag zurückgezogen. Du kannst diese Seite jetzt direkt bearbeiten.",
   "feature.contributions.description": "Wer eine Seite nicht bearbeiten kann, kann Änderungen vorschlagen, die von Prüfenden angenommen werden.",
-  "feature.contributions.name": "Beitragsprüfung"
+  "feature.contributions.name": "Änderungsvorschläge"
 }

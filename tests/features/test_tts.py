@@ -172,16 +172,20 @@ def test_host_disabled_and_panel_off(app, client, make_user, login, make_page, d
     assert client.post("/page/guide/tts/generate", json={}).status_code == 403
 
 
-def test_german_is_read_aloud_only_once_enabled(client, make_user, login, make_page, db):
-    """The interface language plays no part: German pages need German among the read-aloud languages."""
+def test_pages_are_read_in_the_wikis_languages(app, client, make_user, login, make_page, db):
+    """German is read aloud while it is one of the wiki's languages (Admin → Languages), or BW_TTS_LANGUAGES."""
     german = "Dies ist eine Seite über Bananen, und sie hat genug Wörter, damit man sie gut vorlesen kann."
     assert backends.DEFAULT_VOICES["de"] == "de_DE-thorsten-medium"
     make_page(content=german)
     login(client, make_user("reader"))
-    client.get("/?lang=de")
+    db.execute("""UPDATE site_settings SET interface_languages_json = '{"de": false}'""")
     response = client.post("/page/guide/tts/generate", json={"language": "de"})
     assert response.status_code == 400 and response.get_json()["error"] == "unsupported_language"
-    db.execute("UPDATE site_settings SET tts_enabled_languages = 'de,en,it'")
+    set_config(app, languages=("de", "en"))
+    assert client.post("/page/guide/tts/generate", json={"language": "de"}).status_code == 202
+    set_config(app, languages=())
+    db.execute("DELETE FROM tts_generations")
+    db.execute("UPDATE site_settings SET interface_languages_json = '{}'")
     assert client.post("/page/guide/tts/generate", json={"language": "de"}).status_code == 202
     assert db.scalar("SELECT language FROM tts_generations") == "de"
 
@@ -544,23 +548,28 @@ def test_admin_page_and_actions(app, client, admin_client, make_user, make_page,
 
 def test_admin_settings_encrypt_token_and_validate_url(admin_client, db):
     response = admin_client.post("/admin/tts/settings", data={
-        "tts_page_panel_enabled": "1", "generation_mode": "auto", "languages": ["de", "en", "zz"],
-        "tts_performance_mode": "fast", "tts_gpu_enabled": "1", "tts_gpu_url": "http://100.64.0.2:8787",
-        "tts_gpu_auth_token": "s3cret-token", "tts_gpu_timeout": "90",
+        "tts_page_panel_enabled": "1", "generation_mode": "auto", "tts_gpu_url": "http://100.64.0.2:8787",
+        "tts_gpu_auth_token": "s3cret-token",
     })
     assert response.status_code == 302
     row = db.one("SELECT * FROM site_settings WHERE id = 1")
     assert row["tts_auto_generate_enabled"] == 1 and row["tts_public_access_enabled"] == 0
-    assert row["tts_enabled_languages"] == "de,en" and row["tts_performance_mode"] == "fast"
-    assert row["tts_gpu_auth_token"].startswith("fernet:") and row["tts_gpu_timeout"] == 90
+    assert row["tts_gpu_auth_token"].startswith("fernet:") and row["tts_gpu_url"] == "http://100.64.0.2:8787"
     admin_client.post("/admin/tts/settings", data={"tts_gpu_url": "http://host/x?y=1"})
     assert db.scalar("SELECT tts_gpu_url FROM site_settings") == "http://100.64.0.2:8787"
     admin_client.post("/admin/tts/settings", data={"tts_gpu_url": "http://100.64.0.2:8787"})
     assert db.scalar("SELECT tts_gpu_auth_token FROM site_settings").startswith("fernet:")  # kept
 
 
+def test_the_read_aloud_page_keeps_only_the_choices_admins_make(admin_client):
+    page = admin_client.get("/admin/tts").get_data(as_text=True)
+    for retired in ("tts_performance_mode", 'name="languages"', "tts_gpu_enabled", "tts_gpu_timeout"):
+        assert retired not in page, retired
+    assert "languages that have a voice: English" in page
+
+
 def test_saved_gpu_token_is_never_sent_to_a_new_server_address(admin_client, db, monkeypatch):
-    form = {"tts_gpu_enabled": "1", "tts_gpu_url": "http://100.64.0.2:8787", "tts_gpu_auth_token": "s3cret-token"}
+    form = {"tts_gpu_url": "http://100.64.0.2:8787", "tts_gpu_auth_token": "s3cret-token"}
     admin_client.post("/admin/tts/settings", data=form)
     for same_server in ("http://100.64.0.2:8787/", "http://100.64.0.2:8787/tts"):
         response = admin_client.post("/admin/tts/settings", data={**form, "tts_gpu_url": same_server,

@@ -23,13 +23,11 @@
       <label for="confirm_password">{{ t('auth.field.confirm_password') }}</label>
       <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required maxlength="1024">
     </div>
-    {% if invite_required %}
     <div class="field">
-      <label for="invite_code">{{ t('auth.signup.invite_code') }}</label>
-      <input id="invite_code" name="invite_code" value="{{ form.get('invite_code') or invite }}" required maxlength="40"
+      <label for="invite_code">{{ t('auth.signup.invite_code') if invite_required else t('auth.signup.invite_code_optional') }}</label>
+      <input id="invite_code" name="invite_code" value="{{ form.get('invite_code') or invite }}"{% if invite_required %} required{% endif %} maxlength="40"
              autocomplete="one-time-code" placeholder="XXXX-XXXX" autocapitalize="characters" class="mono">
     </div>
-    {% endif %}
     <button class="btn btn--primary" type="submit">{{ t('auth.signup.submit') }}</button>
   </form>
   <p class="small">{{ t('auth.signup.have_account') }} <a href="{{ url_for('auth.login') }}">{{ t('auth.login.submit') }}</a></p>

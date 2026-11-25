@@ -4,7 +4,7 @@
   "bulk_manage.categories": "Kategorien",
   "bulk_manage.category_pages": "Seiten in gelöschten Kategorien",
   "bulk_manage.confirm": "Ausgewählte Elemente löschen? Das kann nicht rückgängig gemacht werden.",
-  "bulk_manage.confirm_hint": "Gelöschte Canvas und Kanban-Boards können nicht wiederhergestellt werden. Seiten lassen sich nur bei eingeschalteter Löschverzögerung wiederherstellen. Massenlöschungen werden im Audit-Protokoll festgehalten.",
+  "bulk_manage.confirm_hint": "Canvas und Kanban-Boards können nicht wiederhergestellt werden. Seiten nur bei eingeschalteter Löschverzögerung.",
   "bulk_manage.confirm_label": "Gib {word} ein, um zu bestätigen",
   "bulk_manage.confirm_word": "LÖSCHEN",
   "bulk_manage.delete_pages_too": "Auch die Seiten löschen",

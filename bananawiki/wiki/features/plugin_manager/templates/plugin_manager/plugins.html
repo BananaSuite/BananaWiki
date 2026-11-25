@@ -4,8 +4,9 @@
 {% block title %}{{ t('plugin_manager.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('plugins.css', blueprint='plugin_manager') }}">{% endblock %}
 {% block admin_content %}
-<header class="page-header">
-  <h1>{{ t('plugin_manager.title') }}</h1>
+{#- The switches and installs are actions; the sidebar order (below) is the one setting, saved from here. -#}
+<header class="page-header{% if apps %} page-header--save{% endif %}">
+  <h1>{{ t('plugin_manager.title') }}</h1>{% if apps %}{{ forms.page_save('sidebar-order-form', t('plugin_manager.order.save')) }}{% endif %}
 </header>
 <nav class="pm-section-links" aria-label="{{ t('plugin_manager.sections') }}">
   <a href="#features">{{ t('plugin_manager.features.title') }}</a>
@@ -19,7 +20,7 @@
   <ul>{% for entry in pending %}<li>{{ entry.name }}: {{ t('plugin_manager.status.' ~ entry.restart ~ '_pending') }}</li>{% endfor %}</ul>
   <p>{{ t('plugin_manager.restart.' ~ restart_mode) }}</p>
   {% if restart_mode == 'gunicorn' %}
-  {{ forms.post_button(url_for('plugin_manager.restart'), t('plugin_manager.action.restart'), 'btn btn--primary', confirm=t('plugin_manager.confirm.restart')) }}
+  {{ forms.post_button(url_for('plugin_manager.restart'), t('plugin_manager.action.restart'), 'btn', confirm=t('plugin_manager.confirm.restart')) }}
   {% endif %}
 </div></div>
 {% endif %}
@@ -73,7 +74,7 @@
       </div>
       {{ pm.password_field() }}
     </div>
-    <button type="submit" class="btn btn--primary">{{ t('plugin_manager.action.import') }}</button>
+    <button type="submit" class="btn">{{ t('plugin_manager.action.import') }}</button>
   </form>
   </details>
   {% elif external_allowed %}
@@ -131,7 +132,7 @@
 <section class="pm-section" aria-labelledby="sidebar-order-title" id="sidebar-order">
   <h2 id="sidebar-order-title">{{ t('plugin_manager.order.title') }}</h2>
   {% if apps %}
-  <form method="post" action="{{ url_for('plugin_manager.save_order') }}" data-sidebar-order>
+  <form method="post" action="{{ url_for('plugin_manager.save_order') }}" id="sidebar-order-form" data-sidebar-order>
     {{ forms.csrf() }}
     <ol class="pm-order" data-order-list>
       {% for app in apps %}
@@ -146,7 +147,6 @@
       </li>
       {% endfor %}
     </ol>
-    <button type="submit" class="btn btn--primary">{{ t('plugin_manager.order.save') }}</button>
   </form>
   {% else %}
   <p class="empty-state">{{ t('plugin_manager.order.empty') }}</p>

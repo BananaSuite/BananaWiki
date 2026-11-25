@@ -16,6 +16,7 @@ from flask import Blueprint, jsonify, request
 
 from .. import accounts, api_tokens, collaborators, events, instances, notifications
 from ..auth import admin_mfa_missing
+from ..db import db
 from ..errors import ServiceError
 from ..i18n import t_lang
 from ..limits import hit
@@ -25,6 +26,8 @@ bp = Blueprint("api", __name__, url_prefix="/api/v1")
 REQUEST_LIMIT = 60
 ACTION_LIMIT = 10
 WINDOW = 60
+LOOKUP_MAX = 500  # names and addresses in one lookup
+_LOOKUP_CHUNK = 200
 
 
 def _error(code: int, message: str, **extra: Any):
@@ -225,3 +228,85 @@ def pending_accounts(account: dict[str, Any], token: dict[str, Any]):
 def admin_instances(account: dict[str, Any], token: dict[str, Any]):
     counts = Counter(row["status"] for row in instances.db.all("SELECT status FROM instances"))
     return jsonify(total=sum(counts.values()), by_status={s: counts.get(s, 0) for s in instances.STATUSES})
+
+
+# Account lookup for the linking tools of apps (BananaChat, BananaGit): administrators' tokens with accounts:lookup.
+
+
+def _lookup_status(row: dict[str, Any]) -> str:
+    if row["approval_status"] != "approved":
+        return "pending"
+    if accounts.is_suspended(row) or row.get("pending_deletion"):
+        return "suspended"
+    return "active"
+
+
+def _verified_email(row: dict[str, Any]) -> str:
+    return row["email"] if row.get("email") and row.get("email_verified_at") and not row.get("email_flagged_invalid") \
+        else ""
+
+
+def _lookup_rows(column: str, values: list[str]) -> list[dict[str, Any]]:
+    """Accounts whose *column* (username, or a verified email) matches one of *values*, ignoring case.
+
+    Deleted accounts and denied ones (about to be deleted) are never found.
+    """
+    found: list[dict[str, Any]] = []
+    for start in range(0, len(values), _LOOKUP_CHUNK):
+        chunk = values[start:start + _LOOKUP_CHUNK]
+        marks = ",".join("?" * len(chunk))
+        extra = (" AND email_verified_at IS NOT NULL AND COALESCE(email_flagged_invalid, 0) = 0 AND email <> ''"
+                 if column == "email" else "")
+        found += db.all(f"SELECT * FROM accounts WHERE {column} COLLATE NOCASE IN ({marks}) "  # noqa: S608
+                        f"AND deleted_at IS NULL AND approval_status != 'denied'{extra}", chunk)
+    return found
+
+
+def _lookup_list(data: dict[str, Any], key: str, limit: int) -> list[str] | None:
+    values = data.get(key, [])
+    if not isinstance(values, list) or not all(isinstance(value, str) and 0 < len(value.strip()) <= limit
+                                               for value in values):
+        return None
+    return list(dict.fromkeys(value.strip() for value in values))
+
+
+@bp.route("/admin/accounts/lookup", methods=["GET", "POST"])
+@token_required("accounts:lookup")
+def lookup_accounts(account: dict[str, Any], token: dict[str, Any]):
+    """Find hosting accounts by user name (any case) or verified address: ``sub``, ``username``, ``email`` (only
+    when verified), ``email_verified`` and ``status``; what matched nothing is listed in ``not_found``."""
+    if request.method == "GET":
+        username = (request.args.get("username") or "").strip()
+        address = (request.args.get("email") or "").strip()
+        if bool(username) == bool(address) or len(username) > 60 or len(address) > 254:
+            return _error(400, "Give either username or email.")
+        names, emails = ([username], []) if username else ([], [address])
+    else:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return _error(400, "Send a JSON object with usernames and/or emails.")
+        names, emails = _lookup_list(data, "usernames", 60), _lookup_list(data, "emails", 254)
+        if names is None or emails is None:
+            return _error(400, "usernames and emails must be lists of non-empty strings.")
+        if not names and not emails:
+            return _error(400, "Give at least one username or email.")
+        if len(names) + len(emails) > LOOKUP_MAX:
+            return _error(400, f"At most {LOOKUP_MAX} usernames and emails together.", max=LOOKUP_MAX)
+    by_name = _lookup_rows("username", names)
+    by_email = _lookup_rows("email", emails)
+    rows = {row["id"]: row for row in by_name + by_email}
+    found_names = {row["username"].lower() for row in by_name}
+    found_emails = {row["email"].lower() for row in by_email}
+    not_found = [name for name in names if name.lower() not in found_names] + \
+        [address for address in emails if address.lower() not in found_emails]
+    events.record("account", account["id"], "api.accounts.lookup", account["id"],
+                  f"Through Token {token['id']} ({token['prefix']}): {len(names)} names, {len(emails)} addresses, "
+                  f"{len(rows)} found")
+    answer = []
+    for row in sorted(rows.values(), key=lambda row: row["username"].lower()):
+        item = {"sub": row["id"], "username": row["username"], "email_verified": bool(_verified_email(row)),
+                "status": _lookup_status(row)}
+        if _verified_email(row):
+            item["email"] = _verified_email(row)  # an address that is not verified is never given out
+        answer.append(item)
+    return jsonify(accounts=answer, not_found=not_found)

@@ -76,12 +76,15 @@ def get(banner_id: int) -> dict[str, Any] | None:
     return db.one("SELECT * FROM hosting_banners WHERE id = ?", (banner_id,))
 
 
+def audience_of(banner_id: int) -> list[str]:
+    return db.column("SELECT account_id FROM hosting_banner_audience WHERE banner_id = ?", (banner_id,))
+
+
 def list_all() -> list[dict[str, Any]]:
     rows = db.all("SELECT b.*, a.username AS creator_name FROM hosting_banners b "
                   "LEFT JOIN accounts a ON a.id = b.created_by ORDER BY b.created_at DESC")
     for row in rows:
-        row["audience_ids"] = db.column("SELECT account_id FROM hosting_banner_audience WHERE banner_id = ?",
-                                        (row["id"],))
+        row["audience_ids"] = audience_of(row["id"])
     return rows
 
 

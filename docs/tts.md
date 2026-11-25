@@ -141,17 +141,19 @@ One page cannot stop the worker or hold the queue for good:
   (`tts_public_access_enabled`);
 * when to generate: when a reader asks, or every time a page is created or
   edited (`tts_auto_generate_enabled`);
-* voice quality (`tts_performance_mode`: `auto`, `balanced`, `fast`);
-* the languages the wiki may speak (`tts_enabled_languages`, English and
-  Italian until changed). A page is read in its detected language only if
-  that language is enabled; otherwise English or another enabled language
-  is used. German pages use `de_DE-thorsten-medium` once German is ticked
-  here. Without `langdetect`, German is detected only when the reader
-  chooses it;
-* the remote GPU server (address, token, timeout, on/off) and a **Test**
-  button;
+* the remote GPU server (address and token; a saved address turns it on)
+  and a **Test** button;
 * the queue: retry failed jobs, delete one page's audio, queue audio for
   every page that has none (backfill), or delete all audio.
+
+Pages are read in the wiki's interface languages (**Admin → Languages**;
+English, Italian and German are built in) that have a voice, or in the
+languages of `BW_TTS_LANGUAGES`. A page is read in its detected language
+only if that language is one of them; otherwise English or another of them
+is used. German pages use `de_DE-thorsten-medium`. Without `langdetect`,
+German is detected only when the reader chooses it. Voice quality is
+`auto` unless `BW_TTS_PERFORMANCE_MODE` says otherwise. (Both were settings
+on this page until version 24.)
 
 Environment variables (`BW_TTS_*`, see
 [configuration](configuration.md#read-aloud-text-to-speech)) set the worker's

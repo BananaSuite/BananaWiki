@@ -4,35 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from flask import Blueprint, abort, current_app, redirect, render_template, request, url_for
+from flask import Blueprint, abort, redirect, render_template, request, url_for
 
-from ... import auth, bm, i18n, settings
+from ... import auth, bm, settings
 from ...db import db
 from ...migrations import DEFAULT_HOME
-from ...registry import registry
 from ..audit import record
 
 bp = Blueprint("bm_mode", __name__, template_folder="templates")
-
-
-def _features() -> list[dict[str, Any]]:
-    """Every feature an administrator may show or hide in BM mode, by name."""
-    denied = current_app.config["BW"].managed_plugin_denylist
-    items = [{"id": feature.id, "name": i18n.t(feature.name), "description": i18n.t(feature.description, ""),
-              "shown": bm.choices().get(f"feature:{feature.id}", bool(feature.easy_wiki)),
-              "default": bool(feature.easy_wiki)}
-             for feature in registry().ordered()
-             if feature.toggle != "always" and feature.id not in denied and not bm.third_party(feature.id)]
-    return sorted(items, key=lambda item: item["name"].casefold())
-
-
-def _simplifications() -> list[dict[str, Any]]:
-    items = []
-    for feature in registry().ordered():
-        for item in feature.simplifications:
-            items.append({"id": item.id, "feature": i18n.t(feature.name), "label": i18n.t(item.label),
-                          "description": i18n.t(item.description, ""), "on": bm.chosen(item)})
-    return items
 
 
 @bp.route("/admin/bm-mode", methods=["GET", "POST"], endpoint="settings")
@@ -41,25 +20,18 @@ def settings_page():
     if request.method == "POST":
         if auth.is_impersonating():
             abort(403)
-        features = {item["id"]: bool(request.form.get(f"feature_{item['id']}")) for item in _features()}
-        items = {item["id"]: bool(request.form.get(f"simplify_{item['id']}")) for item in _simplifications()}
         mode = bool(request.form.get("bm_mode"))
         self_service = bool(request.form.get("bm_self_service"))
         new_accounts = bool(request.form.get("bm_new_accounts"))
-        kept = bm.save(mode=mode, features=features, simplifications_on=items, self_service_on=self_service,
-                       new_accounts_on=new_accounts)
-        for feature_id, reason in kept.items():
-            features[feature_id] = True
+        kept = bm.save(mode=mode, self_service_on=self_service, new_accounts_on=new_accounts)
+        for reason in kept.values():
             auth.flash_t(reason, "warning")
         # Recorded even when the change hid the audit log itself (an owner may), like switching it off.
         record("bm_mode.changed", target_type="site", force=True, details={
-            "bm_mode": mode, "hidden_features": sorted(k for k, v in features.items() if not v),
-            "simplifications_off": sorted(k for k, v in items.items() if not v),
-            "self_service": self_service, "new_accounts": new_accounts})
+            "bm_mode": mode, "self_service": self_service, "new_accounts": new_accounts})
         auth.flash_t("bm_mode.flash.saved", "success")
         return redirect(url_for("bm_mode.settings"))
-    return render_template("bm_mode/admin.html", active=bm.active(), features=_features(),
-                           simplifications=_simplifications(), operator_default=bool(bm._operator_default()),
+    return render_template("bm_mode/admin.html", active=bm.active(), operator_default=bool(bm._operator_default()),
                            self_service=bm.self_service(), new_accounts=bm.new_accounts(),
                            in_bm_mode=bm.accounts_in_bm_mode(), top=_admin_service().is_top(auth.current_user()))
 

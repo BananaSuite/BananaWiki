@@ -7,6 +7,7 @@ import pytest
 from bananawiki.wiki.features.kanban import service as kanban_service
 from bananawiki.wiki.features.kanban import store as kanban_store
 
+from .access_support import members_see, only_stored_permissions
 from .api_support import call, enable_api, issue
 from .pages_support import in_app
 
@@ -28,11 +29,6 @@ def people(make_user):
 @pytest.fixture
 def board(api_app, people):
     return in_app(api_app, lambda: kanban_service.create_board(people["admin"], "Roadmap", "Plans"))
-
-
-def settings(db, **values):
-    for name, value in values.items():
-        db.execute(f"UPDATE site_settings SET {name} = ? WHERE id = 1", (value,))
 
 
 def new_ticket(app, board, user, **data):
@@ -97,11 +93,11 @@ def test_checklists_follow_the_board_rules(api_app, client, db, board, people):
               ("POST", f"/kanban/tickets/{ticket['id']}/checklist/reorder"),
               ("PUT", f"/kanban/checklist/{item['id']}"), ("DELETE", f"/kanban/checklist/{item['id']}"))
     body = {"text": "x", "order": [item["id"]], "done": True}
-    # Default settings: members cannot see the board at all.
+    # A new board is private: members cannot see it at all.
     for method, path in probes:
         assert call(client, method, path, member, json=body).status_code == 404, path
 
-    settings(db, kanban_access="all", kanban_write_access="admin")
+    members_see(db)
     assert call(client, "GET", probes[0][1], member).json["checklist"][0]["text"] == "Hidden"
     for method, path in probes[1:]:
         answer = call(client, method, path, member, json=body)
@@ -132,7 +128,8 @@ def test_column_wip_limit(api_app, client, board, people):
 
 
 def test_my_tickets(api_app, client, db, board, people):
-    settings(db, kanban_access="all", kanban_write_access="all")
+    members_see(db)
+    board = in_app(api_app, lambda: kanban_store.get_board(board["id"]))
     member = people["member"]
     mine = new_ticket(api_app, board, people["admin"], title="Mine", assignees=[member["id"]], due_date="2030-01-01")
     new_ticket(api_app, board, people["admin"], title="Not mine")
@@ -151,6 +148,8 @@ def test_my_tickets(api_app, client, db, board, people):
 
     in_app(api_app, lambda: kanban_service.set_visibility(board, "private"))
     assert call(client, "GET", "/kanban/my-tickets", token).json["tickets"] == []
-    settings(db, kanban_access="admin", kanban_write_access="admin")
-    in_app(api_app, lambda: kanban_service.set_visibility(board, "public"))
-    assert call(client, "GET", "/kanban/my-tickets", token).json["tickets"] == []
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
+               (member["id"],))  # individual permissions without kanban.view
+    only_stored_permissions(db, member["id"])
+    in_app(api_app, lambda: kanban_service.set_visibility(board, "members"))
+    assert call(client, "GET", "/kanban/my-tickets", token).json["code"] == "kanban_forbidden"

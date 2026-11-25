@@ -46,7 +46,7 @@ def _password(action: str, plugin_id: str) -> str:
     from ..users.service import ProfileError
 
     password = request.form.get("password", "")
-    if not password:
+    if not password and not auth.reverified_recently(auth.real_user()):
         return "missing"
     try:
         if service.password_ok(password):

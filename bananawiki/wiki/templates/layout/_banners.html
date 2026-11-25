@@ -7,6 +7,16 @@
   </form>
 </div>
 {% endif %}
+{% if acting %}
+{#- A hosting administrator signed in as this account (the portal's "act"): on every page until the session ends. -#}
+<div class="banner banner--warning" role="status">
+  <span class="banner__text">{{ t('banner.acting', admin=acting.admin, user=current_user.username) }} {{ t('banner.acting_until', time=acting.expires_at|datetime) }}</span>
+  <form class="inline" method="post" action="{{ url_for('auth.logout') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn--small" type="submit">{{ t('banner.acting_sign_out') }}</button>
+  </form>
+</div>
+{% endif %}
 {% if site().maintenance_mode and is_admin %}
 <div class="banner banner--danger" role="status"><span class="banner__text">{{ t('banner.maintenance_admin') }}</span></div>
 {% endif %}

@@ -11,6 +11,8 @@ import pytest
 
 from bananawiki.hosting.db import connection_scope
 
+from .hosting_support import PASSWORD
+
 VERIFIER = "v" * 64
 CHALLENGE = base64.urlsafe_b64encode(hashlib.sha256(VERIFIER.encode()).digest()).decode().rstrip("=")
 
@@ -150,7 +152,7 @@ def test_impersonation_never_gets_a_code(portal, web, make_account, login, wiki)
     login(member_browser, member)
     _allow(member_browser, wiki)
     login(web, admin)
-    web.post(f"/admin/accounts/{member['id']}/impersonate")
+    web.post(f"/admin/accounts/{member['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
     assert _authorize_get(web, wiki).status_code == 403
 
 
@@ -219,7 +221,7 @@ def test_the_wiki_sign_ins_page_is_hidden_while_platform_sign_in_is_off(web, mak
 def test_an_impersonating_administrator_cannot_sign_someone_out(portal, web, make_account, login, wiki):
     admin, member = make_account(admin=True), make_account()
     login(web, admin)
-    web.post(f"/admin/accounts/{member['id']}/impersonate")
+    web.post(f"/admin/accounts/{member['id']}/impersonate", data={"current_password": PASSWORD, "reason": "Support request"})
     assert web.get("/account/wikis").status_code == 200
     assert web.post(f"/account/wikis/{wiki['inst']['id']}/sign-out").status_code == 403
     assert web.post("/oauth/revoke").status_code == 403

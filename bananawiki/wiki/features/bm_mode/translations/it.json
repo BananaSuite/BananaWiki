@@ -3,16 +3,10 @@
   "feature.bm_mode.name": "Modalità BM",
   "bm_mode.nav": "Modalità BM",
   "bm_mode.title": "Modalità BM",
-  "bm_mode.intro": "Meno funzioni e schermate più semplici. Le funzioni nascoste non vengono eliminate.",
   "bm_mode.switch_title": "Modalità",
   "bm_mode.switch": "Usa la modalità BM per tutta la wiki",
   "bm_mode.switch_hint": "Se disattivata, i singoli account possono comunque attivare la modalità BM.",
   "bm_mode.operator_default": "Il server avvia questa wiki in modalità BM. La tua scelta vale finché quell'impostazione del server non cambia.",
-  "bm_mode.features_title": "Funzioni in modalità BM",
-  "bm_mode.features_hint": "Le funzioni non spuntate sono nascoste in modalità BM.",
-  "bm_mode.off_by_default": "Nascosta di solito",
-  "bm_mode.simplifications_title": "Semplificazioni",
-  "bm_mode.no_simplifications": "Nessuna funzione in uso ha qualcosa da semplificare.",
   "bm_mode.flash.saved": "Impostazioni della modalità BM salvate.",
   "bm_mode.flash.everyone_on": "Modalità BM attivata per {count} account.",
   "bm_mode.flash.everyone_on_one": "Modalità BM attivata per 1 account.",
@@ -36,7 +30,6 @@
   "bm_mode.people.count": "{count} account hanno attivato la modalità BM da soli.",
   "bm_mode.people.count_one": "1 account ha attivato la modalità BM da solo.",
   "bm_mode.everyone.title": "Account per ruolo",
-  "bm_mode.everyone.hint": "Attiva o disattiva la modalità BM per tutti gli account con i ruoli spuntati.",
   "bm_mode.everyone.on": "Attiva la modalità BM",
   "bm_mode.everyone.off": "Disattiva la modalità BM",
   "bm_mode.everyone.on_confirm": "Attivare la modalità BM per tutti gli account con i ruoli spuntati che puoi gestire?",
@@ -62,5 +55,6 @@
   "bm_mode.user.rule_allow": "Sì",
   "bm_mode.user.rule_deny": "No, la cambiano solo gli amministratori",
   "bm_mode.user.state_on": "Questo account è in modalità BM.",
-  "bm_mode.user.state_off": "Questo account non è in modalità BM."
+  "bm_mode.user.state_off": "Questo account non è in modalità BM.",
+  "bm_mode.what_it_hides": "La modalità BM nasconde le funzioni pensate per wiki più grandi e i pulsanti meno usati di pagine, editor, bacheche e canvas. Non viene eliminato nulla. Per mostrare una funzione nascosta, attivala in Plugin."
 }

@@ -437,7 +437,7 @@ def test_transferring_on_deletion_refuses_an_unfinished_wiki_before_moving_any(p
     login(client, admin)
     page = client.post(f"/admin/accounts/{victim['id']}/delete", follow_redirects=True,
                        data={"instance_action": "transfer", "transfer_username": heir["username"]})
-    assert "half-made has not finished being created" in page.get_data(as_text=True)
+    assert "half-made is still being created" in page.get_data(as_text=True)
     assert query("SELECT deleted_at FROM accounts WHERE id = ?", (victim["id"],), one=True)["deleted_at"] is None
     assert _state(query, live) == ("running", "ready", victim["id"])
     assert _state(query, pending) == ("stopped", "pending", victim["id"])

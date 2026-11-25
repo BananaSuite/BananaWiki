@@ -242,15 +242,16 @@ def test_the_schema_has_the_new_tables_and_columns(portal, query):
 
 def test_the_migration_runs_on_a_v11_database_and_twice(tmp_path):
     from bananawiki.core.sqlite import execute_script
-    from bananawiki.hosting.migrations import _BASELINE_SQL, MIGRATIONS
+    from bananawiki.hosting.migrations import _BASELINE_SQL, MIGRATIONS, v12_oauth_apps
 
     conn = sqlite3.connect(tmp_path / "old.db")
     execute_script(conn, _BASELINE_SQL.read_text(encoding="utf-8"))
     conn.execute("INSERT OR IGNORE INTO hosting_settings (id, signup_mode) VALUES (1, 'open')")
-    for migration in MIGRATIONS[:-1]:
+    # Every migration before v12 (later ones may follow it in MIGRATIONS), then v12 twice.
+    for migration in MIGRATIONS[:MIGRATIONS.index(v12_oauth_apps.upgrade)]:
         migration(conn)
     assert "hosting_oauth_apps" not in {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
-    MIGRATIONS[-1](conn)
-    MIGRATIONS[-1](conn)
+    v12_oauth_apps.upgrade(conn)
+    v12_oauth_apps.upgrade(conn)
     assert conn.execute("SELECT oauth_apps_enabled, oauth_apps_per_account FROM hosting_settings").fetchone() == (1, 5)
     assert conn.execute("SELECT COUNT(*) FROM hosting_oauth_apps").fetchone() == (0,)

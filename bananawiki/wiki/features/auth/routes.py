@@ -28,7 +28,7 @@ from ...permissions import ADMIN_ROLES
 from ...registry import emit
 from ...templating import nav_items
 from ..audit.service import record
-from . import signin, signin_modes, signup
+from . import platform_oauth, signin, signin_modes, signup
 from .blueprint import ALL_GATES, SIGN_IN_GATES, bp
 
 # Guesses at the setup token per client network, shared by all workers. The
@@ -126,7 +126,11 @@ def _sign_in(template: str, *, admin_only: bool = False, default: str = "/", **c
 
 def _login_context() -> dict[str, Any]:
     password = signin_modes.password_allowed()
-    return {"password_sign_in": password, "signup_available": password and signup.signup_available()}
+    # Hosting accounts only: "Create an account" signs up at the portal (while it takes new accounts).
+    hosting_signup = (not password and signin_modes.current() == signin_modes.PLATFORM
+                      and signup.signup_available() and platform_oauth.portal_signup_open())
+    return {"password_sign_in": password, "signup_available": password and signup.signup_available(),
+            "hosting_signup": hosting_signup}
 
 
 def _password_closed():

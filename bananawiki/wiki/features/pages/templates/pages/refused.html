@@ -1,0 +1,13 @@
+{#- A refused edit or new page, saying why (editing._refusal). Context: title (key), reason (text),
+    page (when a page was refused: the reader may ask for access through the page.edit_unavailable slot). -#}
+{% extends "base.html" %}
+{% block title %}{{ t(title) }}{% endblock %}
+{% block content %}
+<div class="card card--narrow error-page">
+  <h1>{{ t(title) }}</h1>
+  <p>{{ reason }}</p>
+  {% set offer = slot('page.edit_unavailable', page=page) if page else '' %}
+  {% if offer %}<div class="btn-row">{{ offer }}</div>{% else %}<p class="muted">{{ t('pages.why.ask_admin') }}</p>{% endif %}
+  <p class="btn-row"><a class="btn" href="{{ url_for('pages.view', slug=page.slug) if page else url_for('pages.home') }}">{{ t('pages.why.back') if page else t('error.go_home') }}</a></p>
+</div>
+{% endblock %}

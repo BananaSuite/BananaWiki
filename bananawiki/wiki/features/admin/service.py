@@ -20,6 +20,7 @@ log once they have committed (directly, or through the ``user.*`` events).
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -322,7 +323,7 @@ def rename(actor: dict[str, Any], target: dict[str, Any], new_username: str) -> 
 
 
 def clear_overrides(user_id: str) -> None:
-    """Drop per-user permission overrides so the role defaults apply again."""
+    """Drop a person's own permission changes and category lists, so their role alone applies again."""
     db.execute("DELETE FROM user_permissions WHERE user_id = ?", (user_id,))
     db.execute("DELETE FROM user_category_access WHERE user_id = ?", (user_id,))
     db.execute("DELETE FROM user_allowed_categories WHERE user_id = ?", (user_id,))
@@ -674,36 +675,97 @@ def release_name(actor: dict[str, Any], target: dict[str, Any],
         return accounts.release_name(target, username, released_by=_acting_id(actor))
 
 
-# Per-user permission overrides
+# A person's own permissions: changes to what their role gives
 
 
 @dataclass
 class Access:
-    """Per-user permission overrides as shown in the admin forms."""
+    """A person's own permissions as the admin form shows them."""
 
-    customized: bool
-    keys: frozenset[str]
-    read_restricted: bool
+    customized: bool  # the person has changes of their own (keys or category lists)
+    keys: frozenset[str]  # what they hold, their own changes included
+    start: frozenset[str]  # what their role (custom role or base role defaults) gives
+    read_restricted: bool  # their own category settings
     read_ids: frozenset[int]
     write_restricted: bool
     write_ids: frozenset[int]
 
+    @property
+    def changed(self) -> frozenset[str]:
+        """Keys where the person differs from their role."""
+        return self.keys ^ self.start
+
+
+def _grants(user: dict[str, Any]) -> perms.Grants:
+    role = user.get("role") or "user"
+    return perms.load_grants(db, user, auth.role_defaults(role) if role in perms.BASE_ROLES else None)
+
 
 def user_access(user: dict[str, Any]) -> Access:
+    grants = _grants(user)
     rows = db.all("SELECT access_type, restricted FROM user_category_access WHERE user_id = ?", (user["id"],))
-    if not rows:
-        return Access(False, perms.defaults(user["role"]), False, frozenset(), False, frozenset())
     restricted = {row["access_type"]: bool(row["restricted"]) for row in rows}
     cats = db.all("SELECT category_id, access_type FROM user_allowed_categories WHERE user_id = ?", (user["id"],))
-    keys = db.column("SELECT permission_key FROM user_permissions WHERE user_id = ?", (user["id"],))
-    return Access(
-        True,
-        frozenset(keys),
-        restricted.get("read", False),
-        frozenset(c["category_id"] for c in cats if c["access_type"] == "read"),
-        restricted.get("write", False),
-        frozenset(c["category_id"] for c in cats if c["access_type"] == "write"),
-    )
+    own_keys = bool(db.scalar("SELECT 1 FROM user_permissions WHERE user_id = ? LIMIT 1", (user["id"],)))
+
+    def listed(access_type: str) -> frozenset[int]:
+        if not restricted.get(access_type):
+            return frozenset()
+        return frozenset(c["category_id"] for c in cats if c["access_type"] == access_type)
+
+    return Access(own_keys or any(restricted.values()), grants.keys, grants.start,
+                  restricted.get("read", False), listed("read"), restricted.get("write", False), listed("write"))
+
+
+#: What the summary of a person's access lists for each kind of content, in this order.
+SUMMARY_VERBS = {
+    "pages": ("page.create", "page.edit_own", "page.edit_all", "page.delete_own", "page.delete_all"),
+    "kanban": ("kanban.create", "kanban.edit_own", "kanban.edit_all", "kanban.delete_all"),
+    "canvas": ("canvas.create", "canvas.edit_own", "canvas.edit_all", "canvas.delete_all"),
+}
+
+
+def access_summary(user: dict[str, Any]) -> dict[str, Any]:
+    """What *user* can do, in a few plain lines for their admin page (from :func:`permissions.load_grants`).
+
+    ``read`` and ``write`` are None for every category, else the names of the
+    categories; ``content`` lists, per kind of content, the keys of
+    :data:`SUMMARY_VERBS` the person holds (pages always, boards and canvases
+    while their feature is on and the person may open them); ``added`` and
+    ``removed`` are their own changes to what their role gives.
+    """
+    from ...registry import is_enabled
+    from ..pages import categories
+
+    grants = _grants(user)
+    if grants.is_admin:
+        return {"admin": True}
+
+    def holds(key: str) -> bool:
+        return perms.grants_permission(grants, key, is_enabled)
+
+    names = {c["id"]: c["name"] for c in categories.all_categories()}
+
+    def listed(ids: Any) -> list[str]:
+        return sorted((names[i] for i in ids if i in names), key=str.casefold)
+
+    readable = perms.readable_category_ids(grants)
+    content = {"pages": [key for key in SUMMARY_VERBS["pages"] if holds(key)]}
+    for kind in ("kanban", "canvas"):
+        if holds(f"{kind}.view"):
+            content[kind] = [key for key in SUMMARY_VERBS[kind] if holds(key)]
+    return {
+        "admin": False,
+        "custom_role": grants.source == "custom_role",
+        "personal": grants.personal,
+        "reads_pages": holds("page.view_all"),
+        "read": None if readable is None else listed(readable),
+        "write": listed(grants.write.allowed) if grants.write.restricted else None,
+        "content": content,
+        "added": sorted(grants.keys - grants.start),
+        "removed": sorted(grants.start - grants.keys),
+        "chat_disabled": grants.chat_disabled,
+    }
 
 
 def existing_category_ids(values: list[str]) -> list[int]:
@@ -716,24 +778,37 @@ def existing_category_ids(values: list[str]) -> list[int]:
 
 def _require_overridable(actor: dict[str, Any], target: dict[str, Any]) -> None:
     require_manageable(actor, target)
-    if target["role"] not in ("user", "editor"):
+    if target["role"] not in perms.BASE_ROLES:
         raise AccountError("admin.permissions.error.admin_target")
-    if target.get("custom_role_id"):
-        raise AccountError("admin.permissions.error.custom_role")
 
 
 def _write_access(user_id: str, access_type: str, restricted: bool, category_ids: list[int]) -> None:
-    db.execute(
-        "INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id, access_type) DO UPDATE SET restricted = excluded.restricted",
-        (user_id, access_type, int(restricted)),
-    )
+    """A person's own category list for *access_type* (none when *restricted* is false)."""
     db.execute("DELETE FROM user_allowed_categories WHERE user_id = ? AND access_type = ?", (user_id, access_type))
-    if restricted:
-        db.executemany(
-            "INSERT OR IGNORE INTO user_allowed_categories (user_id, category_id, access_type) VALUES (?, ?, ?)",
-            [(user_id, category_id, access_type) for category_id in category_ids],
-        )
+    if not restricted:
+        db.execute("DELETE FROM user_category_access WHERE user_id = ? AND access_type = ?", (user_id, access_type))
+        return
+    db.execute(
+        "INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, ?, 1) "
+        "ON CONFLICT(user_id, access_type) DO UPDATE SET restricted = 1",
+        (user_id, access_type),
+    )
+    db.executemany(
+        "INSERT OR IGNORE INTO user_allowed_categories (user_id, category_id, access_type) VALUES (?, ?, ?)",
+        [(user_id, category_id, access_type) for category_id in category_ids],
+    )
+
+
+def store_key_changes(user_id: str, changes: dict[str, bool]) -> None:
+    """Replace a person's own permission changes (``{key: granted}``)."""
+    db.execute("DELETE FROM user_permissions WHERE user_id = ?", (user_id,))
+    db.executemany("INSERT INTO user_permissions (user_id, permission_key, granted) VALUES (?, ?, ?)",
+                   [(user_id, key, int(granted)) for key, granted in sorted(changes.items())])
+
+
+def describe_changes(changes: dict[str, bool]) -> str:
+    """``+page.edit_all -chat.dm``: a person's own changes for the audit log."""
+    return " ".join(("+" if granted else "-") + key for key, granted in sorted(changes.items()))
 
 
 def save_overrides(actor: dict[str, Any], target: dict[str, Any], *, keys: list[str], read_restricted: bool,
@@ -742,40 +817,45 @@ def save_overrides(actor: dict[str, Any], target: dict[str, Any], *, keys: list[
         actor, target = _current_accounts(actor, target)
         _require_overridable(actor, target)
         granted = perms.sanitize(target["role"], keys)
-        if target["role"] != "editor":
-            write_restricted, write_ids = False, []
-        db.execute("DELETE FROM user_permissions WHERE user_id = ?", (target["id"],))
-        db.executemany("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
-                       [(target["id"], key) for key in sorted(granted)])
+        changes = perms.changes_for(target["role"], granted, _grants(target).start)
+        store_key_changes(target["id"], changes)
         _write_access(target["id"], "read", read_restricted, read_ids)
         _write_access(target["id"], "write", write_restricted, write_ids)
     _audit("user.permissions_changed", actor, target, permissions=" ".join(sorted(granted)),
+           changes=describe_changes(changes),
            read_categories=sorted(read_ids) if read_restricted else "all",
            write_categories=sorted(write_ids) if write_restricted else "all")
 
 
-def save_editor_access(actor: dict[str, Any], target: dict[str, Any], *, restricted: bool,
-                       category_ids: list[int]) -> None:
-    """Limit which categories an editor may write to, keeping their other permissions.
+def grant(actor: dict[str, Any], target: dict[str, Any], *, keys: Iterable[str] = (),
+          categories: Iterable[int] = ()) -> dict[str, list[Any]]:
+    """Add *keys* (with the keys they need) and writing in *categories* to *target*'s own changes.
 
-    An editor without individual permissions gets the role defaults copied, minus
-    ``perms.EXPLICIT_GRANT_KEYS``: limiting categories must not authorize them to create canvases.
+    Nothing else about the person changes: the rest keeps following their
+    role (base role defaults or custom role). A category is added to their
+    own write list, which adds to a custom role's limit. Runs in the caller's
+    transaction when there is one; returns what was added.
     """
+    keys, categories = sorted(keys), sorted(categories)
     with db.transaction():
         actor, target = _current_accounts(actor, target)
         _require_overridable(actor, target)
-        if target["role"] != "editor":
-            raise AccountError("admin.editor_access.error.not_editor")
-        current = user_access(target)
-        if not current.customized:
-            # Their first individual permissions: the defaults, without the keys only a choice may grant.
-            kept = current.keys - perms.EXPLICIT_GRANT_KEYS
-            db.executemany("INSERT OR IGNORE INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
-                           [(target["id"], key) for key in sorted(kept)])
-            _write_access(target["id"], "read", False, [])
-        _write_access(target["id"], "write", restricted, category_ids)
-    _audit("user.permissions_changed", actor, target,
-           write_categories=sorted(category_ids) if restricted else "all")
+        start = _grants(target).start
+        changes = {row["permission_key"]: bool(row["granted"]) for row in db.all(
+            "SELECT permission_key, granted FROM user_permissions WHERE user_id = ?", (target["id"],))}
+        for key in perms.with_implications(keys):
+            if key in start:
+                if changes.get(key) is False:
+                    del changes[key]
+            else:
+                changes[key] = True
+        store_key_changes(target["id"], changes)
+        if categories:
+            db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'write', 1) "
+                       "ON CONFLICT(user_id, access_type) DO UPDATE SET restricted = 1", (target["id"],))
+            db.executemany("INSERT OR IGNORE INTO user_allowed_categories (user_id, category_id, access_type) "
+                           "VALUES (?, ?, 'write')", [(target["id"], category_id) for category_id in categories])
+    return {"keys": keys, "categories": categories}
 
 
 def reset_overrides(actor: dict[str, Any], target: dict[str, Any]) -> None:

@@ -9,50 +9,27 @@
   {% if error_field == name %}<p class="error">{{ error }}</p>{% endif %}
 </div>
 {%- endmacro %}
-{% macro flag(name) -%}{{ forms.checkbox(name, t('chat.settings.' ~ name), values.get(name)) }}{%- endmacro %}
 {% block admin_content %}
 <header class="page-header page-header--save"><h1>{{ t('chat.admin.title') }}</h1>{{ forms.page_save('chat-settings-form') }}</header>
 {% with tab='settings' %}{% include "chat/_admin_tabs.html" %}{% endwith %}
 {% if error %}<div class="alert alert--error"><div class="alert__body">{{ error }}</div></div>{% endif %}
 <form method="post" class="form section-stack" id="chat-settings-form" action="{{ url_for('chat.admin_settings') }}">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <section class="card stack">
-    <h2>{{ t('chat.settings.access') }}</h2>
-    {{ flag('chat_dm_enabled') }}
-    {{ flag('chat_allow_dm_creation') }}
-    {{ flag('chat_group_enabled') }}
-    {{ flag('chat_allow_group_creation') }}
-    {{ flag('profile_group_badges_enabled') }}
-    <p class="small muted">{{ t('chat.settings.access_help') }}</p>
-  </section>
+  <p class="muted">{{ t('chat.settings.access_help') }}</p>
   <section class="card stack">
     <h2>{{ t('chat.settings.limits') }}</h2>
-    {{ number('chat_max_message_length', 1, 100000) }}
-    {{ flag('chat_attachments_enabled') }}
     {{ number('chat_max_attachment_size_mb', 1, ceiling_mb) }}
     {{ number('chat_attachments_per_day_limit', 1, 100000) }}
   </section>
   <section class="card stack">
     <h2>{{ t('chat.settings.retention') }}</h2>
-    {{ flag('chat_cleanup_enabled') }}
+    <p class="hint">{{ t('chat.settings.retention_hint') }}</p>
     <div class="grid grid--2">
-      {{ number('chat_cleanup_frequency_days', 1, 365) }}
-      {{ number('chat_cleanup_hour', 0, 23) }}
-    </div>
-    <fieldset class="stack">
-      <legend>{{ t('chat.settings.dm_policy') }}</legend>
-      {{ flag('chat_dm_auto_clear_messages') }}
       {{ number('chat_dm_message_retention_days', 0, 36500) }}
-      {{ flag('chat_dm_auto_clear_attachments') }}
       {{ number('chat_dm_attachment_retention_days', 0, 36500) }}
-    </fieldset>
-    <fieldset class="stack">
-      <legend>{{ t('chat.settings.group_policy') }}</legend>
-      {{ flag('chat_group_auto_clear_messages') }}
       {{ number('chat_group_message_retention_days', 0, 36500) }}
-      {{ flag('chat_group_auto_clear_attachments') }}
       {{ number('chat_group_attachment_retention_days', 0, 36500) }}
-    </fieldset>
+    </div>
     <p class="small muted">
       {{ t('chat.settings.last_run', when=last_run|datetime) if last_run else t('chat.settings.never_run') }}
       {% if next_run %}· {{ t('chat.settings.next_run', when=next_run|datetime) }}{% endif %}

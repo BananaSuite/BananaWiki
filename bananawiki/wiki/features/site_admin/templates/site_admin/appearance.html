@@ -3,17 +3,20 @@
 {% block title %}{{ t('site_admin.appearance.title') }}{% endblock %}
 {% block admin_head %}<link rel="stylesheet" href="{{ asset_url('site_admin.css', blueprint='site_admin') }}">{% endblock %}
 {% block admin_content %}
+{#- One Save, in the header: it stores the colours and the settings other features' sections add below
+    (admin.appearance), whose fields join this form with form="appearance-form". Import, the site icon and
+    the reset are actions with their own buttons. -#}
 <header class="page-header page-header--save">
   <h1>{{ t('site_admin.appearance.title') }}</h1>
   <div class="page-header__actions">
     <a class="btn" href="{{ url_for('site_admin.theme_export') }}">{{ t('site_admin.appearance.export') }}</a>
-    <button class="btn btn--primary" type="submit" form="colors-form">{{ t('common.save') }}</button>
+    <button class="btn btn--primary" type="submit" form="appearance-form">{{ t('common.save') }}</button>
   </div>
 </header>
 
 <section class="card">
   <h2>{{ t('site_admin.appearance.colors') }}</h2>
-  <form method="post" action="{{ url_for('site_admin.save_colors') }}" class="form" id="colors-form" data-theme-editor>
+  <form method="post" action="{{ url_for('site_admin.save_colors') }}" class="form" id="appearance-form" data-theme-editor>
     {{ forms.csrf() }}
     {{ forms.select('default_theme_mode', t('site_admin.appearance.default_mode'),
                     [('dark', t('site_admin.appearance.mode.dark')), ('light', t('site_admin.appearance.mode.light'))],
@@ -22,7 +25,8 @@
       {% for mode in ('dark', 'light') %}
       <fieldset class="stack">
         <legend>{{ t('site_admin.appearance.mode.' ~ mode) }}</legend>
-        {% for name, value in palettes[mode].items() %}
+        {#- One colour per mode: the rest of the palette follows the theme (a theme file sets every colour). -#}
+        {% for name, value in palettes[mode].items() if name in editable_colors %}
         <div class="field theme-color">
           <label for="f-{{ column(mode, name) }}">{{ t('site_admin.appearance.color.' ~ name) }}</label>
           <input id="f-{{ column(mode, name) }}" type="color" name="{{ column(mode, name) }}" value="{{ value }}"
@@ -42,7 +46,7 @@
       {% endfor %}
     </div>
     <div class="btn-row">
-      {#- The page's Save (in the header) saves the colours; this submits the separate form below. -#}
+      {#- The page's Save (in the header) saves this form; this submits the separate form below. -#}
       <button class="btn" type="submit" form="reset-colors-form">{{ t('site_admin.appearance.reset') }}</button>
     </div>
   </form>
@@ -66,12 +70,6 @@
 
 <section class="card">
   <h2>{{ t('site_admin.favicon.title') }}</h2>
-  <form method="post" action="{{ url_for('site_admin.favicon_enabled') }}" class="form">
-    {{ forms.csrf() }}
-    <input type="hidden" name="favicon_enabled" value="{{ '0' if favicon_enabled else '1' }}">
-    <p>{{ t('site_admin.favicon.enabled' if favicon_enabled else 'site_admin.favicon.disabled') }}</p>
-    <div class="btn-row"><button class="btn" type="submit">{{ t('site_admin.favicon.disable' if favicon_enabled else 'site_admin.favicon.enable') }}</button></div>
-  </form>
   <ul class="favicon-grid">
     {% for preset in presets %}
     {% set chosen = selected_type == preset %}

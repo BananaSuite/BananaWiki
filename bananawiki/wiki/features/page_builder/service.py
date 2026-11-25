@@ -5,9 +5,8 @@ system: a user may build a page only when
 
 * the feature is on (``page_builder_enabled``) and the host allows it
   (``BW_FORBID_PAGE_BUILDER`` unset),
-* their role reaches the ``page_builder_access`` minimum, and
-* the pages service lets them edit that page (``service.can_edit``: editors
-  with write access to the category, administrators) and no feature blocks
+* they hold ``page.use_builder``, and
+* the pages service lets them edit that page (``service.can_edit``) and no feature blocks
   editing it (``page.edit_blocked``: protection, reservations, pending
   deletion).
 
@@ -22,7 +21,7 @@ from typing import Any
 from flask import current_app
 
 from ....core.timeutil import now_sql
-from ... import auth, registry, settings
+from ... import auth, registry
 from ...db import db
 from ..pages import service as pages
 from . import document
@@ -36,7 +35,7 @@ def is_active() -> bool:
 
 def may_use(user: dict[str, Any] | None = None) -> bool:
     user = auth.current_user() if user is None else user
-    return bool(user) and is_active() and auth.minimum_role_allows(settings.get("page_builder_access"), user)
+    return bool(user) and is_active() and auth.has_permission("page.use_builder", user)
 
 
 def may_build(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:

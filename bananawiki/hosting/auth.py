@@ -161,11 +161,22 @@ def load() -> None:
     g.auth_session = row
     g.real_account = real
     if session.get(IMPERSONATOR_KEY):
+        from . import acting
+
         target = accounts.get(session.get(ACCOUNT_KEY))
-        if target is None or not real["is_admin"] or target["deleted_at"]:
+        log_row = acting.log_row(session.get(IMPERSONATION_LOG_KEY))
+        if (target is None or not real["is_admin"] or target["deleted_at"] or target["is_admin"]
+                or not acting.live(log_row)):
+            # Acting ends by itself after admin_act_minutes, and whenever its conditions no longer hold.
+            expired = log_row is not None and not acting.live(log_row)
+            acting.end(session.pop(IMPERSONATION_LOG_KEY, None), "expired" if expired else "stopped")
             session.pop(IMPERSONATOR_KEY, None)
             session[ACCOUNT_KEY] = real["id"]
             target = real
+            if expired:
+                flash(t("hosting.admin.acting_expired"), "info")
+        else:
+            g.acting = log_row
         g.account = target
     else:
         g.account = real
@@ -220,9 +231,20 @@ def end_session() -> None:
     if raw:
         db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
                    (now_sql(), sha256_hex(str(raw)[:256])))
-    accounts.log_impersonation_stop(session.get(IMPERSONATION_LOG_KEY))
+    if session.get(IMPERSONATION_LOG_KEY):
+        from . import acting
+
+        acting.end(session.get(IMPERSONATION_LOG_KEY), "signed_out")
     _clear()
     g.account = g.real_account = g.auth_session = None
+
+
+def revoke_current_session() -> None:
+    """Revoke the session row behind this cookie, keeping the cookie as it is (a fresh sign-in follows)."""
+    raw = session.get(TOKEN_KEY)
+    if raw:
+        db.execute("UPDATE hosting_account_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
+                   (now_sql(), sha256_hex(str(raw)[:256])))
 
 
 def current_session_id() -> str | None:
@@ -277,19 +299,32 @@ def clear_history(account_id: str) -> int:
 # Impersonation
 
 
-def start_impersonation(target: dict[str, Any]) -> None:
+def start_impersonation(target: dict[str, Any], reason: str) -> None:
+    """Act as *target* (see :mod:`.acting`: the caller checked the confirmation and the reason)."""
+    from . import acting
+
     admin = real_account()
     if admin is None:
         abort(403)
+    log_id = acting.start(admin, target, reason)
     session[IMPERSONATOR_KEY] = admin["id"]
-    session[IMPERSONATION_LOG_KEY] = accounts.log_impersonation_start(admin["id"], target["id"])
+    session[IMPERSONATION_LOG_KEY] = log_id
     session[ACCOUNT_KEY] = target["id"]
     g.account = target
+    g.acting = acting.log_row(log_id)
+
+
+def acting_log() -> dict[str, Any] | None:
+    """The ``hosting_impersonation_logs`` row of the acting going on in this request (reason, end), or None."""
+    return g.get("acting") if impersonating() else None
 
 
 def stop_impersonation() -> None:
+    from . import acting
+
     admin_id = session.pop(IMPERSONATOR_KEY, None)
-    accounts.log_impersonation_stop(session.pop(IMPERSONATION_LOG_KEY, None))
+    acting.end(session.pop(IMPERSONATION_LOG_KEY, None), "stopped")
+    g.pop("acting", None)
     if admin_id:
         session[ACCOUNT_KEY] = admin_id
         g.account = g.real_account

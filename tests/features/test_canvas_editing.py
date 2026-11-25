@@ -251,7 +251,6 @@ def test_upload_export_and_import_roundtrip(editor, canvas, db, app):
     plain = editor.get(f"/canvas/{canvas['slug']}/export?format=json")
     assert plain.get_json()["title"] == "Board"
 
-    db.execute("UPDATE site_settings SET canvas_write_access = 'editor', canvas_access = 'editor'")
     response = editor.post("/canvas/import", data={"import_file": (io.BytesIO(export.data), "b.canvas.zip")},
                            content_type="multipart/form-data")
     assert response.status_code == 302
@@ -270,7 +269,7 @@ def test_upload_export_and_import_roundtrip(editor, canvas, db, app):
 
 
 def test_export_requires_edit(app, canvas, make_user, login, client, db):
-    viewer = make_user("viewer1", role="editor")
+    viewer = make_user("viewer1")  # a member: editors hold canvas.edit_all
     db.execute("INSERT INTO canvas__permissions (layout_id, user_id, permission) VALUES (?, ?, 'view')",
                (canvas["id"], viewer["id"]))
     login(client, viewer)

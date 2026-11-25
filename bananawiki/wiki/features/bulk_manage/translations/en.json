@@ -4,7 +4,7 @@
   "bulk_manage.categories": "Categories",
   "bulk_manage.category_pages": "Pages in deleted categories",
   "bulk_manage.confirm": "Delete the selected items? This cannot be undone.",
-  "bulk_manage.confirm_hint": "Deleted canvases and Kanban boards cannot be restored. Pages can be restored only if deletion slowdown is on. Bulk deletions are recorded in the audit log.",
+  "bulk_manage.confirm_hint": "Canvases and Kanban boards cannot be restored. Pages can be restored only while deletion slowdown is on.",
   "bulk_manage.confirm_label": "Type {word} to confirm",
   "bulk_manage.confirm_word": "DELETE",
   "bulk_manage.delete_pages_too": "Delete the pages too",

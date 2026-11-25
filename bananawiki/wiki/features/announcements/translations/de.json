@@ -22,7 +22,6 @@
   "announcements.created": "Ankündigung erstellt.",
   "announcements.created_by": "Von {user}, {when}",
   "announcements.custom_colors": "Eigene Farben verwenden",
-  "announcements.custom_colors_hint": "Wird nur verwendet, wenn „Eigene Farben verwenden“ eingeschaltet ist.",
   "announcements.delete_confirm": "Diese Ankündigung löschen?",
   "announcements.deleted": "Ankündigung gelöscht.",
   "announcements.dismiss": "Ankündigung ausblenden",

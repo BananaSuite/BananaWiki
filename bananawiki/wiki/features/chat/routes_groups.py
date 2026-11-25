@@ -1,7 +1,7 @@
 """Group chats: /groups…
 
 Every view, moderation actions included, first checks that the user may use
-group chats at all (``chat.group`` permission and ``chat_group_enabled``).
+group chats at all (the ``chat.group`` permission).
 """
 
 from __future__ import annotations

@@ -1,0 +1,83 @@
+{#- Visibility and sharing of a Kanban board or a canvas: the same controls and words for both.
+    Every form posts to *share_url* with ``action`` = set_visibility, add_user, add_role, remove_user,
+    remove_role or transfer_ownership, a person as ``user_id`` (from the list) or ``username`` (typed),
+    a ``role`` and an ``access_level`` (``view`` or ``edit``). -#}
+{% import "macros/forms.html" as forms with context %}
+
+{% macro visibility_field(current, id, form_id=None) -%}
+<div class="field">
+  <label for="{{ id }}">{{ t('sharing.visibility') }}</label>
+  <select class="select" id="{{ id }}" name="visibility"{% if form_id %} form="{{ form_id }}"{% endif %} aria-describedby="{{ id }}-hint">
+    {% for value in ('private', 'members', 'public') %}<option value="{{ value }}"{% if value == current %} selected{% endif %}>{{ t('sharing.visibility.' ~ value) }}</option>{% endfor %}
+  </select>
+  <p class="hint" id="{{ id }}-hint">{{ t('sharing.visibility_hint') }}</p>
+</div>
+{%- endmacro %}
+
+{% macro person_field(name_id, share_users, exclude=None) -%}
+<div class="field"><label for="{{ name_id }}">{{ t('sharing.person') }}</label>
+  {% if share_users %}<select class="select" id="{{ name_id }}" name="user_id" required>
+    <option value="">{{ t('sharing.choose_person') }}</option>
+    {% for u in share_users if u.id != exclude %}<option value="{{ u.id }}">{{ u.username }}</option>{% endfor %}
+  </select>
+  {% else %}<input class="input" id="{{ name_id }}" name="username" required autocomplete="off" maxlength="50" aria-describedby="{{ name_id }}-hint">
+  <p class="hint" id="{{ name_id }}-hint">{{ t('sharing.username_hint') }}</p>{% endif %}
+</div>
+{%- endmacro %}
+
+{#- *rows*: ``{type: 'user'|'role', target, name, level}``. -#}
+{% macro shares(share_url, rows, share_users, roles, prefix) -%}
+<h3>{{ t('sharing.current') }}</h3>
+{% if rows %}
+<div class="table-wrap"><table class="table">
+  <thead><tr><th>{{ t('sharing.who') }}</th><th>{{ t('sharing.access') }}</th><th class="actions"><span class="visually-hidden">{{ t('common.actions') }}</span></th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+  <tr>
+    <td>{% if row.type == 'user' %}{{ row.name or t('common.unknown_user') }}{% else %}{{ t('sharing.role.' ~ row.target) }}{% endif %}</td>
+    <td>{{ t('sharing.level.' ~ row.level) }}</td>
+    <td class="actions">
+      {% if row.type == 'user' %}
+      {{ forms.post_button(share_url, t('sharing.remove'), 'btn btn--small', hidden={'action': 'remove_user', 'user_id': row.target}) }}
+      {% else %}
+      {{ forms.post_button(share_url, t('sharing.remove'), 'btn btn--small', hidden={'action': 'remove_role', 'role': row.target}) }}
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+{% else %}
+<p class="muted">{{ t('sharing.none') }}</p>
+{% endif %}
+{% set levels = [('view', t('sharing.level.view')), ('edit', t('sharing.level.edit'))] %}
+<div class="grid grid--2">
+  <form class="form" method="post" action="{{ share_url }}">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="add_user">
+    <h3>{{ t('sharing.add_person') }}</h3>
+    {{ person_field(prefix ~ '-share-user', share_users) }}
+    {{ forms.select('access_level', t('sharing.access'), levels, id=prefix ~ '-share-user-access') }}
+    <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('sharing.add') }}</button></div>
+  </form>
+  {% if roles %}
+  <form class="form" method="post" action="{{ share_url }}">
+    {{ forms.csrf() }}<input type="hidden" name="action" value="add_role">
+    <h3>{{ t('sharing.add_role') }}</h3>
+    {% set role_options = [] %}{% for role in roles %}{% set _ = role_options.append((role, t('sharing.role.' ~ role))) %}{% endfor %}
+    {{ forms.select('role', t('sharing.role'), role_options, id=prefix ~ '-share-role', hint=t('sharing.role_hint')) }}
+    {{ forms.select('access_level', t('sharing.access'), levels, id=prefix ~ '-share-role-access') }}
+    <div class="btn-row"><button type="submit" class="btn btn--small">{{ t('sharing.add') }}</button></div>
+  </form>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro transfer(share_url, owner_name, owner_id, share_users, prefix) -%}
+<h3>{{ t('sharing.transfer') }}</h3>
+<p class="hint hint--block">{{ t('sharing.transfer_hint', owner=owner_name or t('common.unknown_user')) }}</p>
+<form class="form" method="post" action="{{ share_url }}" data-confirm="{{ t('sharing.transfer_confirm') }}">
+  {{ forms.csrf() }}<input type="hidden" name="action" value="transfer_ownership">
+  {{ person_field(prefix ~ '-transfer-user', share_users, exclude=owner_id) }}
+  <div class="btn-row"><button type="submit" class="btn btn--small btn--danger">{{ t('sharing.transfer') }}</button></div>
+</form>
+{%- endmacro %}

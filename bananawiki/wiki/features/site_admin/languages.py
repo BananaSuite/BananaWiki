@@ -96,13 +96,12 @@ def default_language() -> str:
     return valid_code(settings.get("interface_language")) or current_app.config["BW"].default_language
 
 
-def set_default(code: str, fallback: str) -> None:
+def set_default(code: str, fallback: str = "en") -> None:
+    """The default language; texts a language lacks come from English (fixed since version 24)."""
     code = valid_code(code)
     if code not in _enabled_codes(language_switches()):
         raise LanguageError("site_admin.languages.error.not_enabled")
-    if fallback not in BUILTIN_LANGUAGES:
-        raise LanguageError("site_admin.languages.error.unknown")
-    settings.update({"interface_language": code, "interface_language_fallback": fallback})
+    settings.update({"interface_language": code})
 
 
 # Language files

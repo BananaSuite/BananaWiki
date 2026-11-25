@@ -1,141 +1,82 @@
-"""Who may see, change and manage kanban boards.
+"""Who may see, change and manage Kanban boards.
 
-Two layers decide access:
-
-* Site settings. ``kanban_access`` and ``kanban_write_access`` hold the
-  weakest role with *global* view or write access (``admin``, ``editor`` or
-  ``all``); ``kanban_open_access`` gives everyone global access and write
-  access; ``kanban_public_access_enabled`` lets anonymous visitors read
-  ``public`` boards while public mode is on. Nobody gets anything without the
-  ``kanban.view`` permission (which also disappears while the feature is off).
-* Boards. Administrators and the creator always have full access. A share
-  row gives a role or one user ``view`` or ``write`` access. Users with global
-  access also see ``public`` boards and boards shared with their role; users
-  without it see only the boards they created or were individually invited to.
-
-Write access is only ever granted on a board the user can view. Global write
-access reaches every board the user can view; creating boards additionally
-needs the ``kanban.create`` permission. Board settings, sharing and deletion
-belong to the creator and administrators.
+The rules are the ones every shared item follows (:mod:`bananawiki.wiki.sharing`):
+the ``kanban.*`` permissions say what a person may do, each board's
+visibility and shares say who sees it. Nobody gets anything without
+``kanban.view`` (which also disappears while the feature is off).
 
 An archived board is read-only for everyone: nobody can write or comment on
-it until its owner restores it (owners keep sharing, restore, deletion and
-export).
+it until it is restored (whoever may delete it keeps sharing, restore,
+deletion and export).
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from ... import auth, settings
+from ... import auth, sharing
 from ...db import db
-from ...permissions import ADMIN_ROLES, ROLE_RANK, role_at_least
+from ...permissions import ADMIN_ROLES
 
-VISIBILITIES = ("private", "shared", "public")
-ACCESS_LEVELS = ("view", "write")
+KIND = "kanban"
+VISIBILITIES = sharing.VISIBILITIES
+ACCESS_LEVELS = sharing.LEVELS
 SHARE_TYPES = ("role", "user")
-ACCESS_SETTING_VALUES = ("admin", "editor", "all")
-SHAREABLE_ROLES = ("user", "editor", "admin")
-_MINIMUM_ROLE = {"admin": "admin", "editor": "editor", "all": "user"}
+SHAREABLE_ROLES = sharing.SHAREABLE_ROLES
 
 User = dict[str, Any] | None
 Board = dict[str, Any]
 
 
-def _minimum_role(setting: str) -> str:
-    return _MINIMUM_ROLE.get(str(settings.get(setting) or "admin"), "admin")
-
-
-def open_access() -> bool:
-    return bool(settings.get("kanban_open_access"))
-
-
-def public_access_active() -> bool:
-    """Anonymous visitors may read public boards (public mode + the kanban switch)."""
-    return settings.public_mode_active() and bool(settings.get("kanban_public_access_enabled"))
-
-
 def is_admin(user: User) -> bool:
-    return bool(user) and user.get("role") in ADMIN_ROLES
+    return sharing.is_admin(user)
 
 
 def can_use(user: User) -> bool:
     """Signed in and holding ``kanban.view`` (false while the feature is off)."""
-    return bool(user) and auth.has_permission("kanban.view", user)
-
-
-def globally_allowed_roles() -> set[str]:
-    """Base roles with global view access under the current settings."""
-    if open_access():
-        return set(ROLE_RANK)
-    minimum = _minimum_role("kanban_access")
-    return {role for role in ROLE_RANK if role_at_least(role, minimum)}
-
-
-def has_global_access(user: User) -> bool:
-    if not can_use(user):
-        return False
-    return is_admin(user) or user["role"] in globally_allowed_roles()
-
-
-def can_write_global(user: User) -> bool:
-    if not can_use(user):
-        return False
-    return is_admin(user) or open_access() or role_at_least(user["role"], _minimum_role("kanban_write_access"))
+    return sharing.can_use(KIND, user)
 
 
 def can_create(user: User) -> bool:
-    """Create or import boards: global write access and ``kanban.create``."""
-    return can_write_global(user) and auth.has_permission("kanban.create", user)
-
-
-def has_user_share(user: User) -> bool:
-    if not user:
-        return False
-    return db.scalar(
-        "SELECT 1 FROM kanban_board_shares WHERE share_type = 'user' AND target = ? LIMIT 1", (user["id"],)
-    ) is not None
-
-
-def owns_any(user: User) -> bool:
-    if not user:
-        return False
-    return db.scalar("SELECT 1 FROM kanban_boards WHERE created_by = ? LIMIT 1", (user["id"],)) is not None
+    """Create or import boards."""
+    return sharing.can_create(KIND, user)
 
 
 def can_open_kanban(user: User) -> bool:
     """Whether the board list (and the sidebar link) is available to *user*."""
     if user is None:
-        return public_access_active()
-    if not can_use(user):
-        return False
-    return has_global_access(user) or has_user_share(user) or owns_any(user)
+        return sharing.anonymous_level("public") is not None
+    return can_use(user)
 
 
-def _shares_of(user: dict[str, Any], board_id: int) -> list[dict[str, Any]]:
-    return db.all(
-        "SELECT share_type, target, access_level FROM kanban_board_shares WHERE board_id = ? AND "
+def _share_levels(user: dict[str, Any], board_id: int) -> tuple[str | None, str | None]:
+    person = role = None
+    for share in db.all(
+        "SELECT share_type, access_level FROM kanban_board_shares WHERE board_id = ? AND "
         "((share_type = 'user' AND target = ?) OR (share_type = 'role' AND target = ?))",
         (board_id, user["id"], user["role"]),
-    )
+    ):
+        if share["share_type"] == "user":
+            person = sharing.level_name(share["access_level"])
+        else:
+            role = sharing.level_name(share["access_level"])
+    return person, role
+
+
+def level(user: User, board: Board | None) -> str | None:
+    """``"edit"``, ``"view"`` or None for *user* on *board* (archiving aside)."""
+    if board is None:
+        return None
+    person = role = None
+    if user is not None and not is_admin(user) and board["created_by"] != user["id"]:
+        person, role = _share_levels(user, board["id"])
+    return sharing.level(KIND, user, creator_id=board["created_by"], visibility=board.get("visibility"),
+                         person=person, role=role)
 
 
 def can_view(user: User, board: Board | None) -> bool:
     """The single read check: board page, tickets, comments, files, history, sync, embeds."""
-    if board is None:
-        return False
-    if user is None:
-        return board.get("visibility") == "public" and public_access_active()
-    if not can_use(user):
-        return False
-    if is_admin(user) or board["created_by"] == user["id"]:
-        return True
-    shares = _shares_of(user, board["id"])
-    if any(share["share_type"] == "user" for share in shares):
-        return True
-    if not has_global_access(user):
-        return False
-    return board.get("visibility") == "public" or any(share["share_type"] == "role" for share in shares)
+    return level(user, board) is not None
 
 
 def is_archived(board: Board | None) -> bool:
@@ -153,18 +94,17 @@ def can_export(user: User, board: Board | None) -> bool:
 
 
 def _has_write_access(user: User, board: Board | None) -> bool:
-    if user is None or not can_view(user, board):
-        return False
-    if is_admin(user) or board["created_by"] == user["id"] or can_write_global(user):  # type: ignore[index]
-        return True
-    return any(share["access_level"] == "write" for share in _shares_of(user, board["id"]))  # type: ignore[index]
+    return user is not None and level(user, board) == "edit"
 
 
 def is_owner(user: User, board: Board | None) -> bool:
-    """Manage settings and sharing, transfer and delete the board."""
-    if board is None or not can_use(user):
-        return False
-    return is_admin(user) or board["created_by"] == user["id"]  # type: ignore[index]
+    """Manage visibility and sharing, and hand the board over (``kanban.share_own``)."""
+    return board is not None and sharing.can_manage(KIND, user, board["created_by"])
+
+
+def can_delete(user: User, board: Board | None) -> bool:
+    """Delete, archive and restore the board."""
+    return board is not None and sharing.can_delete(KIND, user, board["created_by"], can_view(user, board))
 
 
 def can_comment(user: User, board: Board | None) -> bool:
@@ -191,9 +131,8 @@ def can_moderate_comment(user: User, comment: dict[str, Any]) -> bool:
 
 
 def shareable_roles() -> list[str]:
-    """Roles a board may be shared with: only roles that have global access."""
-    allowed = globally_allowed_roles()
-    return [role for role in SHAREABLE_ROLES if role in allowed]
+    """Roles a board may be shared with (administrators see every board anyway)."""
+    return list(SHAREABLE_ROLES)
 
 
 # Board lists
@@ -207,23 +146,18 @@ _BOARD_SELECT = (
 def _board_condition(user: User) -> tuple[str, dict[str, Any]] | None:
     """The SQL condition (on ``b``) of the boards *user* can open, or None when there are none."""
     if user is None:
-        return ("b.visibility = 'public'", {}) if public_access_active() else None
+        return ("b.visibility = 'public'", {}) if sharing.anonymous_level("public") else None
     if not can_use(user):
         return None
     if is_admin(user):
         return "1", {}
-    individual = (
-        "b.created_by = :uid OR EXISTS (SELECT 1 FROM kanban_board_shares s WHERE s.board_id = b.id "
-        "AND s.share_type = 'user' AND s.target = :uid)"
+    return sharing.visible_condition(
+        user, creator="b.created_by", visibility="b.visibility",
+        person_share="EXISTS (SELECT 1 FROM kanban_board_shares s WHERE s.board_id = b.id "
+                     "AND s.share_type = 'user' AND s.target = :uid)",
+        role_share="EXISTS (SELECT 1 FROM kanban_board_shares s WHERE s.board_id = b.id "
+                   "AND s.share_type = 'role' AND s.target = :role)",
     )
-    if has_global_access(user):
-        condition = (
-            f"{individual} OR b.visibility = 'public' OR EXISTS (SELECT 1 FROM kanban_board_shares s "
-            "WHERE s.board_id = b.id AND s.share_type = 'role' AND s.target = :role)"
-        )
-    else:
-        condition = individual
-    return condition, {"uid": user["id"], "role": user["role"]}
 
 
 def visible_board_ids(user: User) -> tuple[set[int], set[int]]:
@@ -285,18 +219,16 @@ def assignable_users(board: Board) -> list[dict[str, Any]]:
     """Accounts that can reach *board*, so tickets are only assigned to them."""
     shares = db.all("SELECT share_type, target FROM kanban_board_shares WHERE board_id = ?", (board["id"],))
     shared_users = {s["target"] for s in shares if s["share_type"] == "user"}
-    global_roles = globally_allowed_roles()
-    shared_roles = {s["target"] for s in shares if s["share_type"] == "role"} & global_roles
-    public = board.get("visibility") == "public"
-    users = db.all("SELECT id, username, role FROM users ORDER BY username COLLATE NOCASE")
+    shared_roles = {s["target"] for s in shares if s["share_type"] == "role"}
+    everyone = board.get("visibility") in ("members", "public")
+    users = db.all("SELECT id, username, role, custom_role_id FROM users ORDER BY username COLLATE NOCASE")
+    viewers = auth.holders_of("kanban.view", users)
     return [
         {"id": u["id"], "username": u["username"]}
         for u in users
         if u["role"] in ADMIN_ROLES
         or u["id"] == board["created_by"]
-        or u["id"] in shared_users
-        or u["role"] in shared_roles
-        or (public and u["role"] in global_roles)
+        or ((everyone or u["id"] in shared_users or u["role"] in shared_roles) and u["id"] in viewers)
     ]
 
 

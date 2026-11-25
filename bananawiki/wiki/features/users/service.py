@@ -58,8 +58,15 @@ class ProfileError(ValueError):
 def password_ok(user: dict[str, Any], password: str | None) -> bool:
     """Check the account password for a sensitive action, with a per-account limit.
 
-    Raises :class:`ProfileError` once too many wrong passwords were entered.
+    No password is needed while this session's confirmation with the hosting
+    portal is recent (:mod:`..auth.reauth`). Raises :class:`ProfileError`
+    once too many wrong passwords were entered, and while a hosting
+    administrator acts as the account (such changes are the person's own).
     """
+    if auth.acting() is not None:
+        raise ProfileError("auth.acting.error.refused")
+    if not password and auth.reverified_recently(user):
+        return True
     limiter = SqlLimiter(db.session)
     key = f"user:{user['id']}"
     reservation = limiter.reserve(key, "account:password", PASSWORD_CHECKS, PASSWORD_WINDOW)

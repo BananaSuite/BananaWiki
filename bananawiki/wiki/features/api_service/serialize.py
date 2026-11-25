@@ -85,18 +85,20 @@ def attachment(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def board(row: dict[str, Any], *, can_write: bool, is_owner: bool) -> dict[str, Any]:
+def board(row: dict[str, Any], *, can_write: bool, is_owner: bool, can_delete: bool = False) -> dict[str, Any]:
+    """``is_owner``: may manage visibility and sharing (the creator with ``kanban.share_own``, administrators)."""
     return {
         "id": row["id"],
         "title": row["title"],
         "description": row.get("description") or "",
-        "visibility": row.get("visibility") or "public",
+        "visibility": row.get("visibility") or "private",
         "created_by": row.get("created_by"),
         "creator_username": row.get("creator_username") or "",
         "created_at": iso(row.get("created_at")),
         "archived_at": iso(row.get("archived_at")),
         "can_write": can_write,
         "is_owner": is_owner,
+        "can_delete": can_delete,
     }
 
 
@@ -126,7 +128,8 @@ def comment(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def canvas(row: dict[str, Any], *, level: str | None, is_owner: bool) -> dict[str, Any]:
+def canvas(row: dict[str, Any], *, level: str | None, is_owner: bool, can_delete: bool = False) -> dict[str, Any]:
+    """``is_owner``: may manage visibility and sharing (the creator with ``canvas.share_own``, administrators)."""
     return {
         "id": row["id"],
         "slug": row["slug"],
@@ -141,4 +144,5 @@ def canvas(row: dict[str, Any], *, level: str | None, is_owner: bool) -> dict[st
         "updated_at": iso(row.get("updated_at")),
         "can_edit": level == "edit",
         "is_owner": is_owner,
+        "can_delete": can_delete,
     }

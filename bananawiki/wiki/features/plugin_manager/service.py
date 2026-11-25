@@ -113,9 +113,7 @@ def _server_lock(feature_id: str) -> str:
 
 
 def _feature_note(feature_id: str, enabled: bool) -> tuple[str, str] | None:
-    """A switch inside an enabled feature that still keeps it from working (the REST API's own on/off)."""
-    if feature_id == "api_service" and enabled and not settings.get("api_service_enabled"):
-        return "plugin_manager.note.api_off", "api_service.admin"
+    """A switch inside an enabled feature that still keeps it from working (none left: every feature has one)."""
     return None
 
 

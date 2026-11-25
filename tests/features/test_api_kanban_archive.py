@@ -8,6 +8,7 @@ from bananawiki.sdk.client import WikiClient
 from bananawiki.wiki.features.kanban import service as kanban_service
 from bananawiki.wiki.features.kanban import store as kanban_store
 
+from .access_support import members_see
 from .api_support import call, enable_api, issue
 from .pages_support import in_app
 
@@ -30,11 +31,6 @@ def people(make_user):
 @pytest.fixture
 def board(api_app, people):
     return in_app(api_app, lambda: kanban_service.create_board(people["admin"], "Roadmap", "Plans"))
-
-
-def settings(db, **values):
-    for name, value in values.items():
-        db.execute(f"UPDATE site_settings SET {name} = ? WHERE id = 1", (value,))
 
 
 def columns(app, board):
@@ -112,7 +108,7 @@ def test_archive_needs_board_write_access(api_app, client, db, board, people):
               ("GET", f"/kanban/boards/{board['id']}/archived-tickets"))
     for method, path in probes:
         assert call(client, method, path, member, json={"ids": [ticket["id"]]}).status_code == 404, path
-    settings(db, kanban_access="all", kanban_write_access="admin")
+    members_see(db)  # members now see it, but may not change it
     for method, path in probes[:-1]:
         answer = call(client, method, path, member, json={"ids": [ticket["id"]]})
         assert answer.status_code == 403 and answer.json["code"] == "board_forbidden", path
@@ -120,11 +116,12 @@ def test_archive_needs_board_write_access(api_app, client, db, board, people):
     assert in_app(api_app, lambda: kanban_store.get_ticket(ticket["id"]))["archived_at"] is None
 
 
-def test_board_archive_is_owner_only_and_read_only(api_app, client, db, people, make_user):
-    settings(db, kanban_access="editor", kanban_write_access="editor")
+def test_board_archive_is_for_its_creator_and_read_only(api_app, client, db, people, make_user):
     owner = issue(api_app, people["editor"], ["kanban"])
     board = call(client, "POST", "/kanban/boards", owner, json={"title": "Team"}).json["board"]
+    members_see(db)
     other_editor = issue(api_app, make_user("editor2", role="editor", api_access_enabled=1), ["kanban"])
+    # Another editor edits every board it sees (kanban.edit_all) but deletes and archives only its own.
     assert call(client, "POST", f"/kanban/boards/{board['id']}/archive", other_editor).status_code == 403
 
     archived = call(client, "POST", f"/kanban/boards/{board['id']}/archive", owner)
@@ -141,7 +138,7 @@ def test_board_archive_is_owner_only_and_read_only(api_app, client, db, people, 
                                ("POST", f"/kanban/boards/{board['id']}/columns", {"title": "More"})):
         answer = call(client, method, path, owner, json=body)
         assert answer.status_code == 403 and answer.json["code"] == "board_forbidden", path
-    # The owner keeps visibility, restore and delete.
+    # The creator keeps visibility, restore and delete.
     assert call(client, "PUT", f"/kanban/boards/{board['id']}", owner,
                 json={"visibility": "private"}).json["board"]["visibility"] == "private"
     restored = call(client, "POST", f"/kanban/boards/{board['id']}/restore", owner).json["board"]
@@ -153,7 +150,8 @@ def test_board_archive_is_owner_only_and_read_only(api_app, client, db, people, 
 
 
 def test_filters_on_board_and_my_tickets(api_app, client, db, board, people):
-    settings(db, kanban_access="all", kanban_write_access="all")
+    members_see(db)  # before assigning: tickets are only assigned to people who reach the board
+    board = in_app(api_app, lambda: kanban_store.get_board(board["id"]))
     member = people["member"]
     urgent = new_ticket(api_app, board, people["admin"], title="Fix login", priority="critical",
                         labels=["bug"], assignees=[member["id"]])

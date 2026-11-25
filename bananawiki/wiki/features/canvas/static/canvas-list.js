@@ -1,22 +1,17 @@
 /* Canvas list: reorder with the ↑/↓ buttons (keyboard and touch) or by
- * dragging a card, save the order, and reload when someone else changes the
- * shared order (open access). */
+ * dragging a card, and save the order (each person has their own). */
 (function () {
   "use strict";
-
-  var POLL_MS = 15000;
 
   BW.onReady(function () {
     var list = document.querySelector("ul#canvas-list");
     if (!list || !list.dataset.orderUrl) return;
-    var version = list.dataset.orderVersion;
     var dragged = null;
     BW.markMoveEnds(list, "[data-layout-id]");
 
     function save() {
       var ids = Array.prototype.map.call(list.children, function (item) { return Number(item.dataset.layoutId); });
-      BW.fetchJSON(list.dataset.orderUrl, { method: "POST", body: { layout_ids: ids } }).then(function (res) {
-        version = String(res.list_order_version);
+      BW.fetchJSON(list.dataset.orderUrl, { method: "POST", body: { layout_ids: ids } }).then(function () {
         BW.toast(BW.t("canvas.list.order_saved"), "success");
       }).catch(function (error) { BW.toast(error.message || BW.t("error"), "error"); });
     }
@@ -56,14 +51,5 @@
         list.insertBefore(dragged, after ? item.nextElementSibling : item);
       });
     });
-
-    if (list.hasAttribute("data-shared-order")) {
-      window.setInterval(function () {
-        if (document.hidden || dragged) return;
-        BW.fetchJSON(list.dataset.versionUrl).then(function (res) {
-          if (String(res.list_order_version) !== version) window.location.reload();
-        }).catch(function () { /* try again later */ });
-      }, POLL_MS);
-    }
   });
 })();

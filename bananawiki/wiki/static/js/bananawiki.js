@@ -455,7 +455,9 @@
   document.addEventListener("submit", function (event) {
     var form = event.target;
     var submitter = event.submitter;
-    var message = (submitter && submitter.getAttribute("data-confirm")) || form.getAttribute("data-confirm");
+    // A button marked data-no-confirm (such as "Confirm with BananaWiki Hosting") does not make the change.
+    var skip = submitter && submitter.hasAttribute("data-no-confirm");
+    var message = skip ? "" : (submitter && submitter.getAttribute("data-confirm")) || form.getAttribute("data-confirm");
     if (message && !window.confirm(message)) {
       event.preventDefault();
       return;

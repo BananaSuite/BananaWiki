@@ -210,10 +210,10 @@ def test_search_per_account(app, client, login, make_user, frozen_limiter_clock)
     assert other.get("/search?q=banana").status_code == 200
 
 
-def test_api_requests_per_account_whatever_the_token(app, client, db, make_user):
+def test_api_requests_per_account_whatever_the_token(app, client, db, make_user, monkeypatch):
     """``api_service_rate_limit`` calls a minute per account: a second token does not add a budget."""
     enable_api(app, db)
-    db.execute("UPDATE site_settings SET api_service_rate_limit = 3")
+    monkeypatch.setenv("BW_API_RATE_LIMIT", "3")
     reader = make_user("reader", api_access_enabled=1)
     first, second = issue(app, reader, name="one"), issue(app, reader, name="two")
     for _ in range(3):
@@ -224,10 +224,10 @@ def test_api_requests_per_account_whatever_the_token(app, client, db, make_user)
     assert call(client, "GET", "/pages", other).status_code == 200
 
 
-def test_api_tokens_per_account(app, client, db, make_user):
+def test_api_tokens_per_account(app, client, db, make_user, monkeypatch):
     """``api_service_max_tokens_per_user`` active tokens per account: a token cannot mint past it."""
     enable_api(app, db)
-    db.execute("UPDATE site_settings SET api_service_max_tokens_per_user = 2")
+    monkeypatch.setenv("BW_API_MAX_TOKENS_PER_USER", "2")
     reader = make_user("reader", api_access_enabled=1)
     parent = issue(app, reader, ["tokens", "pages"], name="parent")
     body = {"name": "child", "permissions": {"read": True, "scopes": ["pages"]}}

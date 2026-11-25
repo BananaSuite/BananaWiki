@@ -12,7 +12,7 @@ Eine Seite passt zu Text, der von oben nach unten gelesen wird. Ein Canvas passt
 
 ## Berechtigungen
 
-Administratoren legen fest, welche Rollen Canvas nutzen und welche sie erstellen dürfen; einzelnen Personen können sie das Erstellen auch über eine eigene Rolle oder ihre individuellen Berechtigungen erlauben. Wer den Canvas erstellt hat, teilt ihn mit Personen oder Rollen, zum Ansehen oder Bearbeiten.
+Canvas folgen denselben Regeln wie Boards: Mitglieder erstellen sie und verwalten ihre eigenen, ein neues Canvas sieht nur, wer es erstellt hat; diese Person macht es für alle Mitglieder oder Besucher sichtbar und teilt es mit Personen oder Rollen, zum Ansehen oder Bearbeiten. Redakteure bearbeiten jedes Canvas, das sie öffnen können.
 
 ## Verlauf und Export
 

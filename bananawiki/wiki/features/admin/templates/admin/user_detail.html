@@ -15,9 +15,6 @@
     {% if target.role in ('user', 'editor') %}
     <a class="btn" href="{{ url_for('admin.user_permissions', user_id=target.id) }}">{{ t('admin.permissions.title') }}</a>
     {% endif %}
-    {% if target.role == 'editor' and not target.custom_role_id %}
-    <a class="btn" href="{{ url_for('admin.editor_access', user_id=target.id) }}">{{ t('admin.editor_access.title') }}</a>
-    {% endif %}
     {% if not impersonation and not impersonating %}
     {{ forms.post_button(url_for('admin.impersonate', user_id=target.id), t('admin.impersonate.start'), 'btn', confirm=t('admin.impersonate.confirm', username=target.username)) }}
     {% endif %}
@@ -51,6 +48,8 @@
     <dt>{{ t('admin.users.chat') }}</dt><dd>{{ t('admin.users.chat_state_off') if target.chat_disabled else t('admin.users.chat_state_on') }}</dd>
   </dl>
 </section>
+
+{% include "admin/_access_summary.html" %}
 
 {% if target.approval_status == 'pending' %}
 <section class="card">
@@ -91,7 +90,8 @@
       </select>
       <p class="hint">{{ t('admin.users.role_hint') }}</p>
     </div>
-    <div class="btn-row"><button class="btn" type="submit">{{ t('common.save') }}</button></div>
+    {#- This page has no settings form and so no Save: each section is an action named for what it does. -#}
+    <div class="btn-row"><button class="btn" type="submit">{{ t('admin.users.change_role') }}</button></div>
   </form>
   {% endif %}
 </section>
@@ -101,7 +101,7 @@
   <form method="post" action="{{ edit_url }}" class="form">
     {{ forms.csrf() }}<input type="hidden" name="action" value="change_username">
     {{ forms.field('username', t('admin.users.new_username'), target.username, required=true, hint=t('auth.hint.username'), attrs={'maxlength': 50}) }}
-    <div class="btn-row"><button class="btn" type="submit">{{ t('common.save') }}</button></div>
+    <div class="btn-row"><button class="btn" type="submit">{{ t('admin.users.rename_button') }}</button></div>
   </form>
 </section>
 
@@ -116,7 +116,7 @@
     {{ forms.field('password', t('auth.field.new_password'), type='password', required=true, hint=t('auth.hint.password_admin'), attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
     {{ forms.field('confirm_password', t('auth.field.confirm_password'), type='password', required=true, attrs={'autocomplete': 'new-password', 'maxlength': 1024}) }}
     {{ forms.checkbox('force_password_change', t('admin.password.require_change'), checked=true) }}
-    {{ forms.checkbox('keep_original', t('admin.password.keep_original'), hint=t('admin.password.keep_original_hint')) }}
+    {{ forms.checkbox('keep_original', t('admin.password.keep_original')) }}
     <p class="hint">{{ t('admin.password.signs_out') }}</p>
     <div class="btn-row"><button class="btn" type="submit">{{ t('admin.password.submit') }}</button></div>
   </form>

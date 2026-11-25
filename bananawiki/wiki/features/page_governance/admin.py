@@ -27,11 +27,8 @@ PICKER_LIMIT = 2000
 # (column, minimum, maximum) of the numeric settings this page edits.
 NUMBER_SETTINGS = (
     ("page_reservation_duration_hours", 1, reservations.MAX_HOURS),
-    ("page_reservation_cooldown_hours", 0, reservations.MAX_HOURS),
     ("default_reserved_pages_quota", 1, quota.MAX_QUOTA),
-    ("reservation_quota_auto_approve_max", 0, quota.MAX_QUOTA),
-    ("quota_request_cooldown_hours", 0, reservations.MAX_HOURS),
-)
+)  # the wait between quota requests is shared with proposed edits: Site settings → Content
 FLAG_SETTINGS = ("page_protection_enabled", "page_reservations_enabled")
 
 

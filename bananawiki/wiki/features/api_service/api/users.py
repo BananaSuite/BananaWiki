@@ -19,11 +19,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from flask import g
+from flask import g, request
 
 from .....core.json import loads as safe_json_loads
 from .... import accounts, settings
 from ....db import db
+from ...access_requests import service as access_requests
 from ...admin import service as admin_service
 from ...users import service as users_service
 from .. import serialize, tokens
@@ -255,3 +256,65 @@ def delete_user(user_id: str):
         raise ApiError(400, "last_admin")
     _service(admin_service.delete_user, target)
     return ok(deleted=True, id=target["id"])
+
+
+# Requests for edit access (see features/access_requests): listed, approved and declined as on
+# Admin → People → Access requests, with the same rules.
+
+ACCESS_REQUEST_STATUSES = ("pending", "approved", "declined", "all")
+
+
+def _access_request(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"], "user_id": row["user_id"], "username": row["username"], "scope": row["scope"],
+        "category_id": row["category_id"], "category_name": row.get("category_name"),
+        "page_slug": row.get("page_slug"), "message": row["message"], "status": row["status"],
+        "created_at": serialize.iso(row["created_at"]), "decided_by": row.get("decided_by"),
+        "decided_at": serialize.iso(row.get("decided_at")),
+    }
+
+
+def _decide(request_id: int, decide: Callable[..., Any]) -> Any:
+    row = access_requests.get(request_id)
+    if row is None:
+        raise ApiError(404, "access_request_not_found")
+    if row["status"] != "pending":
+        raise ApiError(409, "already_decided")
+    target = _target(row["user_id"])
+    _check_modifiable(target)
+    try:
+        return decide(caller(), request_id)
+    except access_requests.RequestError as error:
+        raise from_service(error) from None
+
+
+@bp.get("/access-requests")
+@requires("users")
+def list_access_requests():
+    require_admin()
+    status = request.args.get("status", "pending")
+    if status not in ACCESS_REQUEST_STATUSES:
+        raise invalid("status", "choice", options=", ".join(ACCESS_REQUEST_STATUSES))
+    limit, offset = page_window()
+    where = "" if status == "all" else "WHERE r.status = ?"
+    rows = db.all(f"{access_requests.SELECT} {where} ORDER BY r.id DESC LIMIT ? OFFSET ?",
+                  ([] if status == "all" else [status]) + [limit + 1, offset])
+    return ok(access_requests=[_access_request(row) for row in rows[:limit]],
+              **window_fields(limit, offset, len(rows)))
+
+
+@bp.post("/access-requests/<int:request_id>/approve")
+@requires("users", write=True)
+def approve_access_request(request_id: int):
+    require_admin()
+    granted = _decide(request_id, access_requests.approve)
+    return ok(access_request=_access_request(access_requests.get(request_id)),
+              granted={"permissions": granted["keys"], "write_categories": granted["categories"]})
+
+
+@bp.post("/access-requests/<int:request_id>/decline")
+@requires("users", write=True)
+def decline_access_request(request_id: int):
+    require_admin()
+    _decide(request_id, access_requests.decline)
+    return ok(access_request=_access_request(access_requests.get(request_id)))

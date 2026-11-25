@@ -118,3 +118,30 @@ def test_suspended_wikis_count_toward_the_account_limit(tmp_path):
         with pytest.raises(ServiceError) as caught:
             instances.create(owner, "another")
         assert caught.value.key == "hosting.instances.account_limit"
+
+
+def test_a_new_account_signs_up_and_creates_a_wiki_with_the_default_settings(platform, query):
+    """The whole path in one session, through the forms, with the platform's defaults (bot protection aside)."""
+    client, response = _signup(platform, "fresh")
+    assert response.status_code == 302
+    assert client.get("/instances/create").status_code == 200
+    created = client.post("/instances/create", data={
+        "subdomain": "fresh-wiki", "domain_mode": "hosting", "compliance_declared": "1",
+        "declared_use_case": "Notes for our reading club, about ten people."})
+    assert created.status_code == 200, created.get_data(as_text=True)[:500]
+    wiki = query("SELECT status FROM instances WHERE subdomain LIKE 'fresh-wiki%'", one=True)
+    assert wiki is not None and wiki["status"] == "running"
+
+
+def test_an_unreadable_creation_date_does_not_keep_an_account_on_probation(platform, query):
+    _signup(platform, "odd")
+    query("UPDATE accounts SET created_at = 'not a date' WHERE username = 'odd'")
+    odd = _account(query, "odd")
+    _create(platform, odd, "one")
+    assert _create(platform, odd, "two")["status"] == "running"
+
+
+def test_new_accounts_keep_a_share_of_a_small_platform(platform, query):
+    _settings(query, global_limit_max_instances=1)
+    _signup(platform, "tiny")
+    assert _create(platform, _account(query, "tiny"), "only")["status"] == "running"

@@ -14,9 +14,6 @@
 .kanban-boards__desc { margin: 0; color: var(--muted); font-size: var(--font-size-ui); overflow-wrap: anywhere; }
 .kanban-boards__item p.small { margin: 0; }
 .kanban-boards__move { display: flex; gap: .15rem; flex-shrink: 0; }
-.kanban-list-order { margin-top: .75rem; font-size: var(--font-size-ui); color: var(--muted); }
-.kanban-list-order > summary { cursor: pointer; width: fit-content; }
-.kanban-list-order .hint { margin: .4rem 0 0; }
 @media (max-width: 480px) { .kanban-boards__move { flex-direction: column; } }
 
 /* Board */

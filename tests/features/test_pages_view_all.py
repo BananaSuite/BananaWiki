@@ -7,6 +7,7 @@ import pytest
 from bananawiki.wiki import permissions
 from bananawiki.wiki.features.pages import service
 
+from .access_support import only_stored_permissions
 from .api_support import call, enable_api, issue
 from .pages_support import in_app, make_category, make_page, restrict
 
@@ -108,4 +109,5 @@ def test_stored_permissions_get_their_implied_keys(make_user, db):
     db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, 'page.edit_all')", (editor["id"],))
     db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
                (editor["id"],))
+    only_stored_permissions(db, editor["id"])
     assert permissions.load_grants(db, editor).keys == {"page.edit_all", "page.view_all"}

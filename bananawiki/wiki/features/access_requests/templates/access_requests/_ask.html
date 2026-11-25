@@ -1,0 +1,24 @@
+{#- Where the Edit button would be, for a reader who may not edit the page (slot page.edit_unavailable).
+    Context: page, offer (service.offer), max_message. -#}
+{% import "macros/forms.html" as forms with context %}
+{% set scope = offer.scope %}
+{% if offer.open %}
+<span class="badge" title="{{ t('access_requests.open_hint') }}">{{ t('access_requests.open') }}</span>
+{% elif offer.wait_until %}
+<span class="badge" title="{{ t('access_requests.error.cooldown', until=offer.wait_until|datetime) }}">{{ t('access_requests.declined') }}</span>
+{% else %}
+<button type="button" class="btn btn--small" data-dialog-open="dlg-ask-edit">{{ t('access_requests.ask') }}</button>
+<dialog id="dlg-ask-edit" aria-labelledby="dlg-ask-edit-h">
+  <h2 id="dlg-ask-edit-h">{{ t('access_requests.ask') }}</h2>
+  <p>{% if scope.kind == 'category' and scope.category %}{{ t('access_requests.scope.category', category=scope.category.name) }}{% else %}{{ t('access_requests.scope.wiki') }}{% endif %}</p>
+  <form method="post" action="{{ url_for('access_requests.ask', slug=page.slug) }}" class="form">
+    {{ forms.csrf() }}
+    <div class="field">
+      <label for="f-ask-message">{{ t('access_requests.message') }}</label>
+      <textarea id="f-ask-message" name="message" rows="3" class="textarea" maxlength="{{ max_message }}" aria-describedby="f-ask-message-hint"></textarea>
+      <p class="hint" id="f-ask-message-hint">{{ t('access_requests.message_hint') }}</p>
+    </div>
+    <div class="btn-row btn-row--end"><button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button><button class="btn btn--primary">{{ t('access_requests.send') }}</button></div>
+  </form>
+</dialog>
+{% endif %}

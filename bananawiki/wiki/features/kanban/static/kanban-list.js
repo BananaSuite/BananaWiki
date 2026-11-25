@@ -1,5 +1,4 @@
-/* Kanban board list: reorder boards (drag, or the arrow buttons) and follow the
- * shared order when open access is on. */
+/* Kanban board list: reorder boards (drag, or the arrow buttons); each person has their own order. */
 (function () {
   "use strict";
 
@@ -7,7 +6,6 @@
   var list = document.querySelector("ul#kanban-board-list");
   if (!list || !BW) return;
 
-  var version = list.dataset.orderVersion;
   var live = document.querySelector("p#kanban-list-live");
 
   function announce(item) {
@@ -30,9 +28,7 @@
       return Number(item.dataset.boardId);
     });
     BW.fetchJSON("/api/kanban/board-order", { method: "POST", body: { board_ids: ids }, keepalive: keepalive })
-      .then(function (result) {
-        version = result.list_order_version;
-      }).catch(function (error) { if (!keepalive) BW.toast(error.message, "error"); });
+      .catch(function (error) { if (!keepalive) BW.toast(error.message, "error"); });
     if (focusId) {
       var again = list.querySelector("[data-board-id='" + focusId + "'] [data-move]");
       if (again) again.focus();
@@ -87,18 +83,5 @@
         save();
       });
     });
-  }
-
-  // With open access everyone shares one order: reload when someone changes it.
-  function checkVersion() {
-    if (document.hidden) return;
-    BW.fetchJSON("/api/kanban/list-order-version").then(function (result) {
-      if (result.list_order_version !== version) location.reload();
-    }).catch(function () { /* try again later */ });
-  }
-
-  if (list.dataset.openAccess === "true") {
-    setInterval(checkVersion, 30000);
-    document.addEventListener("visibilitychange", checkVersion);
   }
 })();

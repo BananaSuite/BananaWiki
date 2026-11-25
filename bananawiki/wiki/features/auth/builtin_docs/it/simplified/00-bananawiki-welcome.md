@@ -20,8 +20,8 @@ BananaWiki tiene le pagine del tuo gruppo in un unico posto, sul tuo server. Gli
 
 | Ruolo | Scopo principale |
 |---|---|
-| **Utente** | leggere e usare gli strumenti consentiti |
-| **Editor** | creare e aggiornare pagine |
+| **Utente** | leggere; creare pagine, bacheche e canvas e lavorare sui propri |
+| **Editor** | anche modificare pagine, bacheche e canvas di tutti |
 | **Amministratore** | gestire wiki, utenti, impostazioni e plugin |
 | **Proprietario** | amministratore che gli altri amministratori non possono modificare |
 

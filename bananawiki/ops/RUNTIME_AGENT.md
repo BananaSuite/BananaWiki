@@ -139,7 +139,8 @@ mount, hardening flags and env-file rules as `tenant.start` (label
 (at most 64 KiB) is a JSON object whose `action` is one of `seed`,
 `migrate`, `list_users`, `set_password`, `remove_user`, `reset_admin`,
 `analytics`, `apply_policy`, `quarantine`, `snapshot`, `restore_db`,
-`discard`; it is written to the task's stdin (it may carry a password) and
+`discard`, `list_links`, `link_users`, `unlink_user` (the account links a
+portal administrator makes); it is written to the task's stdin (it may carry a password) and
 never appears on a command line. `result` is the task's last stdout line,
 a JSON object with `ok` (untrusted: the tenant controls that process), or
 the request fails with `docker_failed` or `timeout`. This is how the portal

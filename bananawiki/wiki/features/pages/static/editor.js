@@ -23,6 +23,15 @@
   var initial = draftState();
   var submitting = false;
 
+  // The header with Save and Cancel sticks under the top bar; the toolbar sticks under the header.
+  var header = document.querySelector(".page-header--save");
+  if (header) {
+    var measure = function () { editor.style.setProperty("--editor-header-height", header.offsetHeight + "px"); };
+    measure();
+    if (window.ResizeObserver) new window.ResizeObserver(measure).observe(header);
+    else window.addEventListener("resize", measure);
+  }
+
   // Text helpers
   function replaceSelection(before, after, placeholder) {
     var start = area.selectionStart, end = area.selectionEnd;

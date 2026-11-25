@@ -51,7 +51,7 @@ def _readable_paths() -> dict[int, str]:
 def api_preview():
     # Only the page editor previews; rendering is the costliest thing a
     # request can ask for, so accounts that cannot edit may not.
-    if not auth.has_role("editor"):
+    if not access.may_write_pages():
         return _error("error.forbidden", 403)
     content = _json_body().get("content", "")
     if not isinstance(content, str):
@@ -65,7 +65,7 @@ def api_preview():
 @rate_limited("highlight", 60)
 def api_highlight():
     # An editor helper too, and as costly as a preview.
-    if not auth.has_role("editor"):
+    if not access.may_write_pages():
         return _error("error.forbidden", 403)
     data = _json_body()
     content, language = data.get("content", ""), data.get("language") or ""
@@ -159,8 +159,7 @@ def api_sidebar_pages():
 
 def may_reorder_pages() -> bool:
     user = auth.current_user()
-    return bool(user) and (auth.is_admin(user) or (auth.has_role("editor", user)
-                                                   and auth.has_permission("page.edit_all", user)))
+    return bool(user) and auth.has_permission("page.edit_all", user)
 
 
 # Live page state

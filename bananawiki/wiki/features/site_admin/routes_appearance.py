@@ -9,7 +9,7 @@ from typing import Any
 
 from flask import jsonify, redirect, render_template, request, send_file, url_for
 
-from ... import auth, settings
+from ... import auth, registry, settings
 from ...i18n import t
 from ...templating import FAVICON_PRESETS, THEME_DEFAULTS
 from ..audit import record
@@ -39,10 +39,13 @@ def _answer(error: AppearanceError | None = None, message: str = "common.saved",
 @auth.admin_required
 def appearance_page():
     kind, custom = appearance.selection()
+    # Shown again after a refused Save (a section of another feature refused it): the colours as sent.
+    sent = request.form if request.method == "POST" else None
     return render_template(
-        "site_admin/appearance.html", palettes=appearance.palettes(), default_mode=appearance.default_mode(),
+        "site_admin/appearance.html", palettes=appearance.palettes(sent), editable_colors=appearance.EDITABLE_COLORS,
+        default_mode=appearance.default_mode(sent),
         defaults=THEME_DEFAULTS, presets=FAVICON_PRESETS, customs=appearance.custom_icons(),
-        selected_type=kind, selected_custom=custom, favicon_enabled=bool(settings.get("favicon_enabled")),
+        selected_type=kind, selected_custom=custom,
         column=appearance.color_column,
     )
 
@@ -50,10 +53,16 @@ def appearance_page():
 @bp.post("/admin/appearance/colors")
 @auth.admin_required
 def save_colors():
+    """The page's one Save: the colours, and the fields other features' sections add to the form (the
+    admin.appearance slot), which they store through the ``admin.appearance.save`` interceptor point. A
+    section that refuses its fields answers with the page again; then the colours are not stored either."""
     try:
         values = appearance.parse_colors(request.form)
     except AppearanceError as error:
         return _answer(error)
+    refused = registry.intercept("admin.appearance.save", form=request.form)
+    if refused is not None:
+        return refused
     settings.update(values)
     record("appearance.updated")
     return _answer()
@@ -170,9 +179,10 @@ _legacy("reorder", "favicon_reorder")(favicon_reorder)
 @bp.post("/admin/appearance/favicon/enabled")
 @auth.admin_required
 def favicon_enabled():
-    enabled = 1 if request.form.get("favicon_enabled") == "1" else 0
-    settings.update({"favicon_enabled": enabled})
-    record("favicon.toggled", details={"enabled": enabled})
+    """The old on/off switch (until version 22): off showed the default icon, so it now selects that one."""
+    if request.form.get("favicon_enabled") != "1":
+        appearance.select("yellow")
+        record("favicon.selected", target_type="favicon", target_id="yellow")
     return _answer()
 
 

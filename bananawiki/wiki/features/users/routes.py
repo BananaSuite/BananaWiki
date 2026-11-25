@@ -42,7 +42,9 @@ def _fail(error: Exception, endpoint: str, **values: Any):
 
 
 def _no_impersonation() -> None:
-    if auth.is_impersonating():
+    """The account's own decisions (deleting it, its sessions): never on its behalf (impersonation, or a
+    hosting administrator acting as it)."""
+    if auth.on_behalf():
         abort(403)
 
 
@@ -129,6 +131,8 @@ SECTION_TABS = {
     "user_data_export": "privacy",
 }
 RETURN_TABS = {"account": "users.settings", "security": "users.security"}
+# The id of the attention feature's settings form, saved from the header of the tab that shows it.
+NOTIFICATION_FORM = "notification-prefs-form"
 
 
 def tab_sections(tab: str, *, short: bool = False) -> list[tuple[str, Any]]:
@@ -155,11 +159,13 @@ def _return_endpoint() -> str:
 @bp.get("/settings", endpoint="settings")
 def settings_page():
     user = auth.current_user()
+    sections = tab_sections("account", short=short_settings(user))
     return render_template(
         "users/settings.html", user=user, tab="account", languages=enabled_languages(),
         display_prefs=preferences.current(user), may_become_owner=service.may_become_owner(user),
-        sections=tab_sections("account", short=short_settings(user)),
-        tour_available=not settings.get("onboarding_replay_disabled"),
+        sections=sections, tour_available=not settings.get("onboarding_replay_disabled"),
+        # BM mode's short version shows the notification settings here: the header's Save saves them.
+        save_form=NOTIFICATION_FORM if any(feature_id == "attention" for feature_id, _ in sections) else None,
     )
 
 
@@ -178,8 +184,7 @@ def security():
 @bp.get("/settings/notifications")
 def notifications():
     return render_template("users/settings_tab.html", tab="notifications", title=t("users.tab.notifications"),
-                           save_form="notification-prefs-form",
-                           sections=tab_sections("notifications"))
+                           save_form=NOTIFICATION_FORM, sections=tab_sections("notifications"))
 
 
 @bp.get("/settings/privacy")

@@ -6,12 +6,11 @@ from typing import Any
 
 from flask import abort, redirect, render_template, request, url_for
 
-from ... import accounts, auth, settings
+from ... import accounts, auth
 from ...db import db
 from ...registry import feature_blueprint, is_enabled
 from ...templating import from_local_input
 from ..admin import service as admin_service
-from ..audit.service import record_settings
 from . import audit, openapi, tokens, userbot, webhooks
 from .errors import ApiError
 
@@ -88,8 +87,9 @@ def _no_store(result):
 
 
 def _no_impersonation() -> None:
-    """An administrator viewing the wiki as someone else must not mint lasting credentials for them."""
-    if auth.is_impersonating():
+    """An administrator viewing the wiki as someone else (or a hosting administrator acting as them) must not
+    mint lasting credentials for them."""
+    if auth.on_behalf():
         abort(403)
 
 
@@ -222,24 +222,6 @@ def _form_int(name: str, default: int, bounds: tuple[int, int]) -> int:
     except (TypeError, ValueError):
         value = default
     return max(bounds[0], min(bounds[1], value))
-
-
-@bp.post("/admin/api-service/settings")
-@auth.admin_required
-def admin_settings():
-    values = {
-        "api_service_enabled": 1 if request.form.get("enabled") else 0,
-        "api_service_rate_limit": _form_int("rate_limit", 60, tokens.RATE_LIMIT_BOUNDS),
-        "api_service_admin_rate_limit": _form_int("admin_rate_limit", 120, tokens.RATE_LIMIT_BOUNDS),
-        "api_service_max_tokens_per_user": _form_int("max_tokens_per_user", 5, tokens.MAX_TOKENS_BOUNDS),
-        "api_service_webhook_max_failures": _form_int("webhook_max_failures", webhooks.MAX_FAILURES_DEFAULT,
-                                                      webhooks.MAX_FAILURES_BOUNDS),
-    }
-    previous = settings.load()
-    settings.update(values)
-    record_settings(previous, values, via="api_service")
-    auth.flash_t("api_service.flash.settings_saved", "success")
-    return _admin_redirect()
 
 
 def _protection_error(target: dict[str, Any]) -> str | None:

@@ -137,8 +137,6 @@ def favicon_url() -> str:
     """The chosen icon; a bundled one carries its content version, so browsers drop an earlier drawing."""
     s = settings.load()
     custom = s.get("favicon_custom") or ""
-    if not s.get("favicon_enabled"):
-        return asset_url("favicons/banana_yellow.png")
     if s.get("favicon_type") == "custom" and custom.startswith("custom_"):
         return url_for("favicon_file", filename=custom)
     preset = s.get("favicon_type") if s.get("favicon_type") in FAVICON_PRESETS else "yellow"
@@ -383,7 +381,7 @@ def install(app: Flask) -> None:
             "csp_nonce": web.csp_nonce,
             "current_user": user,
             "real_user": auth.real_user(),
-            "impersonating": auth.is_impersonating(),
+            "impersonating": auth.is_impersonating(), "acting": auth.acting(),
             "has_permission": auth.has_permission,
             "has_role": auth.has_role,
             "is_admin": auth.is_admin(user) if user else False,

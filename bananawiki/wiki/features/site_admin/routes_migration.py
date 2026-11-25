@@ -49,7 +49,7 @@ def _confirmed(action: str) -> bool:
     password = request.form.get("password", "")
     try:
         # Counted against the account's password budget like every other re-entered password.
-        correct = bool(password) and password_ok(user, password)
+        correct = password_ok(user, password)
     except ProfileError as error:
         record(f"site.{action}_refused", details={"reason": "too_many_attempts"})
         auth.flash_t(error.key, "error")

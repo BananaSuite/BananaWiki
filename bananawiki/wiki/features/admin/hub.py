@@ -11,27 +11,32 @@ from typing import Any
 from .blueprint import bp
 
 OVERVIEW = "admin:admin.dashboard"
-PEOPLE = {"admin", "users", "user_profiles", "badges", "temporary_accounts"}
-SYSTEM = {"audit", "api_service", "federation"}
-SYSTEM_ITEMS = {"site_admin:site_admin.migration_page", "site_admin:site_admin.server_page"}
-WIKI = {"site_admin", "attention", "plugin_manager", "bm_mode"}
-CONTENT = {"assessments", "announcements", "bulk_manage", "custom_pages", "chat", "canvas", "deletion_slowdown",
-           "page_export", "page_governance", "page_builder", "tts", "contributions"}
+# Each group by feature; a feature whose pages belong to different groups names them one by one.
+PEOPLE = {"admin", "access_requests", "users", "user_profiles", "badges", "temporary_accounts"}
+CONTENT = {"announcements", "bulk_manage", "custom_pages", "contributions", "deletion_slowdown", "page_export",
+           "page_governance"}
+FEATURES = {"plugin_manager", "chat", "assessments", "tts", "api_service", "federation"}
+APPEARANCE = {"bm_mode"}
+SYSTEM = {"attention", "audit"}
+ITEMS = {
+    "site_admin:site_admin.general": "system",
+    "site_admin:site_admin.appearance": "appearance",
+    "site_admin:site_admin.languages_page": "appearance",
+    "site_admin:site_admin.docs_page": "content",
+    "site_admin:site_admin.migration_page": "system",
+    "site_admin:site_admin.server_page": "system",
+}
+_BY_FEATURE = {**dict.fromkeys(PEOPLE, "people"), **dict.fromkeys(CONTENT, "content"),
+               **dict.fromkeys(FEATURES, "features"), **dict.fromkeys(APPEARANCE, "appearance"),
+               **dict.fromkeys(SYSTEM, "system")}
 # The order the groups are listed in; features the lists above do not know about land in "extensions".
-GROUPS = ("people", "wiki", "content", "system", "extensions")
+GROUPS = ("people", "content", "features", "appearance", "system", "extensions")
 
 
 def group_of(item: dict[str, Any]) -> str:
-    feature_id = item["id"].split(":")[0]
-    if feature_id in PEOPLE:
-        return "people"
-    if item["id"] in SYSTEM_ITEMS or feature_id in SYSTEM:
-        return "system"
-    if feature_id in WIKI:
-        return "wiki"
-    if feature_id in CONTENT:
-        return "content"
-    return "extensions"
+    if item["id"] in ITEMS:
+        return ITEMS[item["id"]]
+    return _BY_FEATURE.get(item["id"].split(":")[0], "extensions")
 
 
 def grouped(items: list[dict[str, Any]]) -> dict[str, Any]:

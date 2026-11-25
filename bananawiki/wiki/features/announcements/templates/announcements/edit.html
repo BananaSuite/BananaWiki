@@ -1,19 +1,18 @@
 {% extends "admin/_layout.html" %}
 {% import "announcements/_form.html" as ann with context %}
+{% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('announcements.edit_title', id=announcement.id) }}{% endblock %}
 {% block admin_content %}
 <nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol><li><a href="{{ url_for('announcements.admin') }}">{{ t('announcements.admin_title') }}</a></li><li>#{{ announcement.id }}</li></ol></nav>
-<div class="page-header"><h1>{{ t('announcements.edit_title', id=announcement.id) }}</h1></div>
+<header class="page-header page-header--save"><h1>{{ t('announcements.edit_title', id=announcement.id) }}</h1>
+  <div class="page-header__actions"><a class="btn" href="{{ url_for('announcements.admin') }}">{{ t('common.cancel') }}</a>
+    <button class="btn btn--primary" type="submit" form="announcement-form">{{ t('common.save') }}</button></div></header>
 <section class="stack">
   {{ ann.error_list(errors) }}
-  <form method="post" action="{{ url_for('announcements.edit', announcement_id=announcement.id) }}" class="form stack">
+  <form method="post" action="{{ url_for('announcements.edit', announcement_id=announcement.id) }}" class="form stack" id="announcement-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     {{ ann.fields(form, service, editing=true) }}
     <p class="hint">{{ t('announcements.edit_hint') }}</p>
-    <div class="btn-row">
-      <button type="submit" class="btn btn--primary">{{ t('common.save') }}</button>
-      <a class="btn" href="{{ url_for('announcements.admin') }}">{{ t('common.cancel') }}</a>
-    </div>
   </form>
 </section>
 {% endblock %}

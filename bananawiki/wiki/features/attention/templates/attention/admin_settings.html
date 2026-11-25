@@ -14,12 +14,6 @@
       {{ forms.checkbox('attention_email_enabled', t('attention.admin.enabled'), values.attention_email_enabled, hint=t('attention.admin.enabled_hint', count=recipients)) }}
       <div class="form" data-reveal-for="attention_email_enabled" data-reveal-values="1">
         {{ forms.select('attention_email_mode', t('attention.admin.mode'), [('immediate', t('attention.admin.mode.immediate')), ('digest', t('attention.admin.mode.digest')), ('daily', t('attention.admin.mode.daily'))], values.attention_email_mode) }}
-        <div data-reveal-for="attention_email_mode" data-reveal-values="digest">
-          {{ forms.field('attention_email_interval_minutes', t('attention.admin.interval'), values.attention_email_interval_minutes, type='number', attrs={'min': min_interval, 'max': max_interval, 'class': 'input--short'}) }}
-        </div>
-        <div data-reveal-for="attention_email_mode" data-reveal-values="daily">
-          {{ forms.field('attention_email_daily_hour', t('attention.admin.daily_hour'), values.attention_email_daily_hour, type='number', hint=t('attention.admin.daily_hour_hint'), attrs={'min': 0, 'max': 23, 'class': 'input--short'}) }}
-        </div>
       </div>
       {{ forms.checkbox('decision_email_enabled', t('attention.admin.decisions'), values.decision_email_enabled, hint=t('attention.admin.decisions_hint')) }}
       {% if base_url_from_env %}

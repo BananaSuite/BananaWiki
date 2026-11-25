@@ -28,10 +28,10 @@ from bananawiki.core.numbers import ascii_int
 
 from ....core import downloads
 from ....core.web import client_network
-from ... import accounts, auth, settings, storage
+from ... import accounts, auth, sharing, storage
+from ...db import db
 from ...i18n import t
 from ...registry import feature_blueprint
-from ..audit import record_settings
 from ..audit.service import record
 from ..pages import service as pages
 from ..pages import uploads
@@ -70,26 +70,30 @@ def _limit(bucket: str, limit: int, window: int = 60) -> None:
         _too_many()
 
 
-def _deny(status: int = 403) -> None:
+def _deny(status: int = 403, description: str | None = None) -> None:
     if auth.current_user() is None:
         # redirect_to_login() answers a (body, 401) tuple to JSON callers, which abort() cannot take.
         abort(make_response(auth.redirect_to_login()))
     if auth.wants_json():
         abort(make_response(jsonify({"error": t("canvas.error.forbidden" if status == 403 else "canvas.error.not_found")}),
                             status))
-    abort(status)
+    abort(status, description=description)
 
 
 def _layout(slug: str, need: str = "view") -> tuple[dict[str, Any], str]:
-    """Load a canvas the current user may *need* (``view``, ``edit`` or ``own``)."""
+    """Load a canvas the current user may *need* (``view``, ``edit``, ``own`` or ``delete``)."""
     layout = service.get_by_slug(slug)
     user = auth.current_user()
     level = access.level(user, layout)
     if layout is None or level is None:
         _deny(404)
     if need == "edit" and level != "edit":
-        _deny(403)
+        own = user is not None and layout["creator_id"] == user["id"]  # type: ignore[index]
+        _deny(403, t("canvas.view.view_only_own") if own else
+              t("canvas.view.view_only", owner=layout["creator_username"] or t("common.unknown_user")))
     if need == "own" and not access.is_owner(user, layout):
+        _deny(403)
+    if need == "delete" and not access.can_delete(user, layout):
         _deny(403)
     return layout, level  # type: ignore[return-value]
 
@@ -136,10 +140,6 @@ def outline_label(item: dict[str, Any]) -> str:
 # List, create, import, order
 
 
-def _order_owner(user: dict[str, Any]) -> str | None:
-    return None if access.open_access() else user["id"]
-
-
 @bp.get("/canvas")
 @auth.public_read
 def index():
@@ -147,15 +147,15 @@ def index():
     if not access.can_open_canvas(user):
         _deny(403)
     # One page of canvases per request, so a wiki with many canvases costs little more to list.
-    ids = access.ordered_ids(user, _order_owner(user) if user is not None else None)
+    ids = access.ordered_ids(user, service.order_owner(user))
     pages_total = max(1, -(-len(ids) // LIST_PAGE_SIZE))
     number = min(max(ascii_int(request.args.get("page", "1"), 6) or 1, 1), pages_total)
     layouts = access.layouts_in_order(user, ids[(number - 1) * LIST_PAGE_SIZE:number * LIST_PAGE_SIZE])
     return render_template(
         "canvas/list.html", layouts=layouts, can_create=access.can_create(user),
         # Moving canvases keeps those of later pages after the first page, so only the first page can.
-        can_reorder=user is not None and number == 1, shared_order=access.open_access(),
-        order_version=service.order_version(), templates=presets.names(), page=number, pages=pages_total,
+        can_reorder=user is not None and number == 1,
+        templates=presets.names(), page=number, pages=pages_total,
     )
 
 
@@ -212,7 +212,7 @@ def save_order():
     raw = _json_body().get("layout_ids")
     if not isinstance(raw, list) or len(raw) > ORDER_LIMIT:
         return jsonify({"error": t("canvas.error.bad_request")}), 400
-    owner = _order_owner(user)
+    owner = service.order_owner(user)
     visible = set(access.ordered_ids(user, owner))
     ids: list[int] = []
     seen: set[int] = set()  # membership is checked in a set: the order can hold many canvases
@@ -224,13 +224,12 @@ def save_order():
                 seen.add(layout_id)
     # The list shows one page: the canvases already placed keep their order after the ones sent, and
     # those never placed still follow, most recently changed first, so later pages stay as they were.
-    # The shared order also holds canvases this user cannot see: they keep their places too.
     for layout_id in service.order_ids(owner):
-        if layout_id not in seen and (owner is None or layout_id in visible):
+        if layout_id not in seen and layout_id in visible:
             ids.append(layout_id)
             seen.add(layout_id)
     del ids[ORDER_LIMIT:]  # each save rewrites the order: canvases further down sort by their last change
-    service.save_order(owner, ids)
+    service.save_order(user["id"], ids)
     return jsonify({"ok": True, "list_order_version": service.order_version()})
 
 
@@ -398,21 +397,42 @@ def outline(slug: str):
 @bp.get("/canvas/<slug>/settings")
 def manage(slug: str):
     layout, level = _layout(slug, "edit")
-    owner = access.is_owner(auth.current_user(), layout)
+    user = auth.current_user()
+    owner = access.is_owner(user, layout)
+    shares = [{"type": "user" if row["user_id"] else "role", "target": row["user_id"] or row["role"],
+               "name": row["username"], "level": sharing.level_name(row["permission"])}
+              for row in service.permissions(layout["id"])] if owner else []
     return render_template(
-        "canvas/manage.html", layout=layout, is_owner=owner,
-        permissions=service.permissions(layout["id"]) if owner else [],
-        roles=access.shareable_roles(), visibilities=access.VISIBILITIES,
+        "canvas/manage.html", layout=layout, is_owner=owner, can_delete=access.can_delete(user, layout),
+        shares=shares, share_users=_share_directory(user) if owner else [], roles=access.shareable_roles(),
     )
+
+
+def _share_directory(user: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Accounts the sharing form offers, for owners who may search the member list (``search.users``),
+    as on the boards; others type a user name."""
+    if not user or not auth.has_permission("search.users", user):
+        return []
+    return db.all("SELECT id, username FROM users WHERE suspended = 0 "
+                  "AND COALESCE(approval_status, 'approved') = 'approved' ORDER BY username COLLATE NOCASE")
 
 
 @bp.post("/canvas/<slug>/edit")
 def edit_info(slug: str):
+    """The manage page's one Save: title and description, and for the owner the visibility too (a form
+    without the visibility field, as before, changes only the text)."""
     _limit("edit", 20)
     layout, _level = _layout(slug, "edit")
+    user = auth.current_user()
+    visibility = request.form.get("visibility")
+    if visibility is not None and not access.is_owner(user, layout):
+        _deny(403)
     try:
-        service.update_info(layout, request.form.get("title"), request.form.get("description"),
-                            user_id=auth.current_user()["id"])
+        if visibility is not None and visibility not in access.VISIBILITIES:
+            raise service.CanvasError("canvas.error.bad_visibility")  # checked first: nothing is half saved
+        service.update_info(layout, request.form.get("title"), request.form.get("description"), user_id=user["id"])
+        if visibility is not None and visibility != layout["visibility"]:
+            service.set_visibility(layout, visibility, actor_id=user["id"])
     except service.CanvasError as error:
         auth.flash_t(error.key, "error", **error.values)
     else:
@@ -423,14 +443,14 @@ def edit_info(slug: str):
 @bp.post("/canvas/<slug>/delete")
 def delete(slug: str):
     _limit("delete", 10)
-    layout, _level = _layout(slug, "own")
+    layout, _level = _layout(slug, "delete")
     service.delete(layout, actor_id=auth.current_user()["id"])
     auth.flash_t("canvas.flash.deleted", "success")
     return redirect(url_for("canvas.index"))
 
 
 def _share_target_user() -> dict[str, Any] | None:
-    value = (request.form.get("new_owner") or request.form.get("username") or "").strip()
+    value = (request.form.get("username") or request.form.get("new_owner") or "").strip()
     if value:
         return accounts.by_username(value)
     return accounts.by_id((request.form.get("user_id") or "").strip() or None)
@@ -442,7 +462,7 @@ def share(slug: str):
     _limit("share", 30)
     layout, _level = _layout(slug, "own")
     action = request.form.get("action", "")
-    permission = request.form.get("permission", "view")
+    permission = request.form.get("access_level") or request.form.get("permission") or "view"
     back = redirect(url_for("canvas.manage", slug=layout["slug"]))
     if action in ("add_user", "transfer_ownership"):
         target = _share_target_user()
@@ -456,14 +476,14 @@ def share(slug: str):
             auth.flash_t("canvas.flash.transferred", "success", username=target["username"])
             still_owner = access.is_owner(auth.current_user(), service.get(layout["id"]))
             return back if still_owner else redirect(url_for("canvas.index"))
-        if target["id"] == layout["creator_id"] or permission not in access.PERMISSIONS:
+        if target["id"] == layout["creator_id"] or sharing.level_name(permission) is None:
             auth.flash_t("canvas.error.bad_request", "error")
             return back
         service.set_permission(layout["id"], permission, user_id=target["id"])
         auth.flash_t("canvas.flash.shared", "success")
     elif action == "add_role":
         role = request.form.get("role", "")
-        if role not in access.shareable_roles() or permission not in access.PERMISSIONS:
+        if role not in access.shareable_roles() or sharing.level_name(permission) is None:
             auth.flash_t("canvas.error.bad_role", "error")
             return back
         service.set_permission(layout["id"], permission, role=role)
@@ -583,31 +603,6 @@ def embed_sync(slug: str):
     _limit("embed-sync", 120)
     layout, _level = _layout(slug)
     return _sync_response(layout)
-
-
-# Site settings
-
-SETTING_FIELDS = ("canvas_access", "canvas_write_access")
-SETTING_SWITCHES = ("canvas_public_access_enabled", "canvas_open_access")
-
-
-@bp.route("/admin/canvas", methods=["GET", "POST"])
-@auth.admin_required
-def admin_settings():
-    if request.method == "POST":
-        values: dict[str, Any] = {}
-        for name in SETTING_FIELDS:
-            value = request.form.get(name, "admin")
-            values[name] = value if value in access.ACCESS_SETTING_VALUES else "admin"
-        for name in SETTING_SWITCHES:
-            values[name] = 1 if request.form.get(name) else 0
-        previous = settings.load()
-        settings.update(values)
-        record_settings(previous, values, via="canvas")
-        auth.flash_t("canvas.flash.settings_saved", "success")
-        return redirect(url_for("canvas.admin_settings"))
-    return render_template("canvas/admin_settings.html", current=settings.load(),
-                           choices=access.ACCESS_SETTING_VALUES)
 
 
 # Previews of a node being edited and the member's own order of the list change nothing others see.

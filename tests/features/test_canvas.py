@@ -12,6 +12,8 @@ from bananawiki.wiki import registry
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.canvas import service
 
+from .access_support import only_stored_permissions
+
 
 def run(app, fn):
     with app.test_request_context(), connection_scope():
@@ -51,10 +53,18 @@ def as_(client, login, user):
     return client
 
 
-def test_default_access_is_admin_only(client, login, people, app, db):
-    layout = make_canvas(app, people["admin"], visibility="public")
+def individual_permissions(db, user, keys):
+    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
+               (user["id"],))
+    db.executemany("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
+                   [(user["id"], key) for key in perms.sanitize(user["role"], keys)])
+    only_stored_permissions(db, user["id"])
+
+
+def test_new_canvases_are_private_to_their_creator(client, login, people, app, db):
+    layout = make_canvas(app, people["admin"])
     as_(client, login, people["user"])
-    assert client.get("/canvas").status_code == 403
+    assert client.get("/canvas").status_code == 200  # members open the list (canvas.view)
     assert client.get(f"/canvas/{layout['slug']}").status_code == 404
     as_(client, login, people["admin"])
     page = client.get("/canvas")
@@ -62,41 +72,32 @@ def test_default_access_is_admin_only(client, login, people, app, db):
     assert client.get(f"/canvas/{layout['slug']}").status_code == 200
 
 
-def test_single_share_does_not_open_public_canvases(client, login, people, app, db):
-    """A user with one individual share cannot read every public canvas."""
-    shared = make_canvas(app, people["admin"], "Shared with me")
-    public = make_canvas(app, people["admin"], "Public one", visibility="public")
-    share(db, shared, "view", user=people["user"])
-    as_(client, login, people["user"])
-    listing = client.get("/canvas")
-    assert listing.status_code == 200
-    assert b"Shared with me" in listing.data and b"Public one" not in listing.data
-    assert client.get(f"/canvas/{shared['slug']}").status_code == 200
-    assert client.get(f"/canvas/{public['slug']}").status_code == 404
-    assert client.get(f"/canvas/{public['slug']}/data").status_code == 404
-
-
-def test_global_access_sees_public_and_role_shares_and_none_denies(client, login, people, app, db):
-    settings(db, canvas_access="all")
-    public = make_canvas(app, people["admin"], "Everyone board", visibility="public")
+def test_visibility_and_shares_decide_who_sees_a_canvas(client, login, people, app, db):
+    members = make_canvas(app, people["admin"], "Everyone board", visibility="members")
+    public = make_canvas(app, people["admin"], "Public board", visibility="public")
     private = make_canvas(app, people["admin"], "Secret board")
     by_role = make_canvas(app, people["admin"], "Role board")
-    denied = make_canvas(app, people["admin"], "Denied board", visibility="public")
+    by_name = make_canvas(app, people["admin"], "Named board")
     share(db, by_role, "view", role="user")
-    share(db, denied, "none", user=people["user"])
+    share(db, by_name, "view", user=people["user"])
     as_(client, login, people["user"])
     body = client.get("/canvas").data
-    assert b"Everyone board" in body and b"Role board" in body
-    assert b"Secret board" not in body and b"Denied board" not in body
+    assert b"Everyone board" in body and b"Public board" in body and b"Role board" in body and b"Named board" in body
+    assert b"Secret board" not in body
     assert client.get(f"/canvas/{private['slug']}").status_code == 404
-    assert client.get(f"/canvas/{denied['slug']}").status_code == 404
-    assert client.get(f"/canvas/{public['slug']}/data").get_json()["can_edit"] is False
+    assert client.get(f"/canvas/{members['slug']}/data").get_json()["can_edit"] is False
+    # A role share reaches that role only: editors do not see the board shared with users.
+    as_(client, login, people["editor"])
+    body = client.get("/canvas").data
+    assert b"Role board" not in body and b"Named board" not in body and b"Everyone board" in body
+    # Editors hold canvas.edit_all: they change every canvas they can open.
+    assert client.get(f"/canvas/{public['slug']}/data").get_json()["can_edit"] is True
 
 
 def test_edit_permission_and_view_only(client, login, people, app, db):
     layout = make_canvas(app, people["owner"])
-    share(db, layout, "view", user=people["editor"])
-    as_(client, login, people["editor"])
+    share(db, layout, "view", user=people["user"])
+    as_(client, login, people["user"])
     ops = {"ops": [{"op": "upsert_node", "node": {"id": "n1", "type": "text", "content": "hi"}}]}
     assert client.post(f"/canvas/{layout['slug']}/ops", json=ops).status_code == 403
     db.execute("UPDATE canvas__permissions SET permission = 'edit' WHERE layout_id = ?", (layout["id"],))
@@ -105,13 +106,6 @@ def test_edit_permission_and_view_only(client, login, people, app, db):
     assert client.post(f"/canvas/{layout['slug']}/delete").status_code == 403
     assert client.post(f"/canvas/{layout['slug']}/share", data={"action": "set_visibility",
                                                                "visibility": "public"}).status_code == 403
-
-
-def test_open_access_lets_everyone_edit(client, login, people, app, db):
-    settings(db, canvas_open_access=1)
-    layout = make_canvas(app, people["owner"])
-    as_(client, login, people["user"])
-    assert client.get(f"/canvas/{layout['slug']}/data").get_json()["can_edit"] is True
 
 
 def test_feature_switch_and_permission(client, login, people, app, db):
@@ -123,178 +117,79 @@ def test_feature_switch_and_permission(client, login, people, app, db):
     db.execute("UPDATE plugins SET enabled = 1 WHERE id = 'canvas'")
     db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
                (people["owner"]["id"],))  # explicit permission set without canvas.view
+    only_stored_permissions(db, people["owner"]["id"])
     assert client.get(f"/canvas/{layout['slug']}").status_code == 404
 
 
 def test_anonymous_public_access(app, people, db, client):
     public = make_canvas(app, people["admin"], "Open", visibility="public")
+    members = make_canvas(app, people["admin"], "Members", visibility="members")
     private = make_canvas(app, people["admin"], "Closed")
     assert client.get(f"/canvas/{public['slug']}").status_code == 302
-    settings(db, public_mode=1, canvas_public_access_enabled=1)
+    settings(db, public_mode=1)
     assert client.get(f"/canvas/{public['slug']}").status_code == 200
     assert client.get(f"/canvas/{public['slug']}/data").status_code == 200
     assert client.get(f"/api/embed/canvas/{public['slug']}").status_code == 200
     assert client.get(f"/canvas/{private['slug']}").status_code == 302
+    assert client.get(f"/canvas/{members['slug']}").status_code == 302
     assert client.post(f"/canvas/{public['slug']}/ops", json={"ops": []}).status_code in (302, 401)
     body = client.get("/canvas").data
-    assert b"Open" in body and b"Closed" not in body
+    assert b"Open" in body and b"Closed" not in body and b"Members" not in body
 
 
-def test_create_requires_write_access_and_permission(client, login, people, app, db):
-    as_(client, login, people["owner"])
-    assert client.post("/canvas/create", data={"title": "Nope"}).status_code == 403
-    settings(db, canvas_access="editor", canvas_write_access="editor")
+def test_members_create_canvases_by_default(client, login, people, app, db):
+    as_(client, login, people["user"])
     response = client.post("/canvas/create", data={"title": "My board", "description": "d"})
     assert response.status_code == 302 and "/canvas/my-board" in response.headers["Location"]
     row = db.one("SELECT * FROM canvas__layouts WHERE slug = 'my-board'")
-    assert row["creator_id"] == people["owner"]["id"] and row["visibility"] == "private"
+    assert row["creator_id"] == people["user"]["id"] and row["visibility"] == "private"
     assert db.scalar("SELECT COUNT(*) FROM canvas__history WHERE layout_id = ?", (row["id"],)) == 1
-    # Plain users lack canvas.create by default even when the setting allows everyone.
-    settings(db, canvas_access="all", canvas_write_access="all")
-    as_(client, login, people["user"])
-    assert client.post("/canvas/create", data={"title": "x"}).status_code == 403
     # Validation.
-    as_(client, login, people["owner"])
     client.post("/canvas/create", data={"title": "  "})
     client.post("/canvas/create", data={"title": "t" * 201})
     assert db.scalar("SELECT COUNT(*) FROM canvas__layouts") == 1
+    # The creator manages and deletes their canvas.
+    assert client.post("/canvas/my-board/share", data={"action": "set_visibility",
+                                                        "visibility": "members"}).status_code == 302
+    assert db.scalar("SELECT visibility FROM canvas__layouts WHERE slug = 'my-board'") == "members"
+    assert client.post("/canvas/my-board/delete").status_code == 302
+    assert db.scalar("SELECT COUNT(*) FROM canvas__layouts") == 0
 
 
-# Creating below the write-access role: canvas.create granted to one person
-
-
-def custom_role(db, user, keys, base_role="editor"):
-    from bananawiki.core.timeutil import now_sql
-
-    role_id = db.insert("custom_roles", {"name": f"Role of {user['username']}", "base_role": base_role,
-                                         "created_at": now_sql(), "updated_at": now_sql()})
-    db.executemany("INSERT INTO custom_role_permissions (role_id, permission_key) VALUES (?, ?)",
-                   [(role_id, key) for key in keys])
-    db.execute("UPDATE users SET custom_role_id = ?, role = ? WHERE id = ?", (role_id, base_role, user["id"]))
-
-
-def individual_permissions(db, user, keys):
-    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
-               (user["id"],))
-    db.executemany("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
-                   [(user["id"], key) for key in keys])
-
-
-def may_create(app, db, user):
-    from bananawiki.wiki.features.canvas import access
-
-    current = db.one("SELECT * FROM users WHERE id = ?", (user["id"],))
-    return run(app, lambda: (access.can_create(current), access.can_open_canvas(current)))
-
-
-@pytest.mark.parametrize(("setting", "expected"), [
-    ("admin", {"admin": True, "editor": False, "user": False, "role editor": True, "role editor without": False,
-               "role user": True, "individual user": True, "individual editor without": False}),
-    ("editor", {"admin": True, "editor": True, "user": False, "role editor": True, "role editor without": False,
-                "role user": True, "individual user": True, "individual editor without": False}),
-    ("all", {"admin": True, "editor": True, "user": False, "role editor": True, "role editor without": False,
-             "role user": True, "individual user": True, "individual editor without": False}),
-])
-def test_who_may_create_under_each_write_setting(app, db, make_user, setting, expected):
-    editor_keys, user_keys = perms.defaults("editor"), perms.defaults("user")
-    people = {"admin": make_user("boss9", role="admin"), "editor": make_user("editor9", role="editor"),
-              "user": make_user("plain9")}
-    people["role editor"] = make_user("roled1", role="editor")
-    custom_role(db, people["role editor"], editor_keys)
-    people["role editor without"] = make_user("roled2", role="editor")
-    custom_role(db, people["role editor without"], editor_keys - {"canvas.create"})
-    people["role user"] = make_user("roled3")
-    custom_role(db, people["role user"], user_keys | {"canvas.create"}, base_role="user")
-    people["individual user"] = make_user("solo1")
-    individual_permissions(db, people["individual user"], user_keys | {"canvas.create"})
-    people["individual editor without"] = make_user("solo2", role="editor")
-    individual_permissions(db, people["individual editor without"], editor_keys - {"canvas.create"})
-    settings(db, canvas_write_access=setting)
-
-    found = {name: may_create(app, db, user) for name, user in people.items()}
-    assert {name: created for name, (created, _opens) in found.items()} == expected
-    # Whoever may create also opens the list (and its sidebar link); nobody else here has a way in.
-    assert all(opens == created for created, opens in found.values())
-    # Nobody without canvas.create gets in through the list either; open access needs the permission too.
-    settings(db, canvas_open_access=1)
-    assert may_create(app, db, people["user"])[0] is False
-    assert may_create(app, db, people["role editor without"])[0] is False
-
-
-def test_custom_role_lets_one_editor_create_while_creation_is_for_admins(client, login, people, app, db):
-    settings(db, canvas_access="admin", canvas_write_access="admin")
-    public = make_canvas(app, people["admin"], "Teacher map", visibility="public")
-    as_(client, login, people["owner"])
-    assert client.get("/canvas").status_code == 403
-    assert client.post("/canvas/create", data={"title": "Nope"}).status_code == 403
-
+def test_create_needs_the_create_permission(client, login, people, app, db):
+    individual_permissions(db, people["user"], {"canvas.view"})
+    as_(client, login, people["user"])
+    listing = client.get("/canvas")
+    assert listing.status_code == 200 and b"canvas-create-dialog" not in listing.data
+    assert client.post("/canvas/create", data={"title": "x"}).status_code == 403
+    # Granting it (here through a custom role) is all it takes.
     as_(client, login, people["admin"])
     created = client.post("/admin/roles/create", data={
-        "name": "Map makers", "description": "", "base_role": "editor",
-        "permissions": sorted(perms.defaults("editor"))})
+        "name": "Map makers", "description": "", "base_role": "user", "permissions": ["canvas.create"]})
     assert created.status_code == 302
     role_id = db.scalar("SELECT id FROM custom_roles WHERE name = 'Map makers'")
-    client.post(f"/admin/roles/{role_id}/assign", data={"user_id": people["owner"]["id"]})
-
-    as_(client, login, people["owner"])
-    listing = client.get("/canvas")
-    assert listing.status_code == 200 and b"canvas-create-dialog" in listing.data
-    assert b"Teacher map" not in listing.data  # creating does not open other people's canvases
-    response = client.post("/canvas/create", data={"title": "Class map"})
-    assert response.status_code == 302 and "/canvas/class-map" in response.headers["Location"]
+    client.post(f"/admin/roles/{role_id}/assign", data={"user_id": people["user"]["id"]})
+    as_(client, login, people["user"])
+    assert b"canvas-create-dialog" in client.get("/canvas").data
+    assert client.post("/canvas/create", data={"title": "Class map"}).status_code == 302
     export = client.get("/canvas/class-map/export?format=json")
     imported = client.post("/canvas/import", data={"import_file": (io.BytesIO(export.data), "m.canvas.json")},
                            content_type="multipart/form-data")
     assert imported.status_code == 302
-    assert db.scalar("SELECT COUNT(*) FROM canvas__layouts WHERE creator_id = ?", (people["owner"]["id"],)) == 2
-    assert client.get(f"/canvas/{public['slug']}").status_code == 404
 
-    # Another editor keeps only the default grant and stays out.
+
+def test_own_verbs_and_delete_all(client, login, people, app, db):
+    mine = make_canvas(app, people["user"], "Mine", visibility="members")
+    individual_permissions(db, people["user"], {"canvas.view", "canvas.create"})  # no edit/delete/share own
+    as_(client, login, people["user"])
+    assert client.get(f"/canvas/{mine['slug']}/data").get_json()["can_edit"] is False
+    assert client.post(f"/canvas/{mine['slug']}/delete").status_code == 403
+    assert client.post(f"/canvas/{mine['slug']}/share", data={"action": "set_visibility",
+                                                              "visibility": "public"}).status_code == 403
+    individual_permissions(db, people["editor"], {"canvas.view", "canvas.delete_all"})
     as_(client, login, people["editor"])
-    assert client.get("/canvas").status_code == 403
-    assert client.post("/canvas/create", data={"title": "Nope"}).status_code == 403
-
-
-def test_individual_permissions_let_one_user_create_while_creation_is_for_admins(client, login, people, app, db):
-    as_(client, login, people["admin"])
-    keys = sorted(perms.defaults("user") | {"canvas.create"})
-    saved = client.post(f"/admin/users/{people['user']['id']}/permissions", data={"permissions": keys})
-    assert saved.status_code == 302
-    as_(client, login, people["user"])
-    assert b"canvas-create-dialog" in client.get("/canvas").data
-    assert client.post("/canvas/create", data={"title": "My notes"}).status_code == 302
-    assert db.scalar("SELECT creator_id FROM canvas__layouts WHERE slug = 'my-notes'") == people["user"]["id"]
-
-    # Resetting to the role defaults takes it back.
-    as_(client, login, people["admin"])
-    client.post(f"/admin/users/{people['user']['id']}/permissions", data={"action": "reset"})
-    as_(client, login, people["user"])
-    assert client.post("/canvas/create", data={"title": "Again"}).status_code == 403
-    listing = client.get("/canvas")  # still opens: they own a canvas
-    assert listing.status_code == 200 and b"canvas-create-dialog" not in listing.data
-
-
-def test_limiting_an_editors_categories_does_not_authorize_canvases(client, login, people, app, db):
-    docs = db.insert("categories", {"name": "Docs"})
-    editor = people["editor"]
-    as_(client, login, people["admin"])
-    assert b"Create canvases" in client.get(f"/admin/users/{editor['id']}/editor-access").data  # the note
-    client.post(f"/admin/users/{editor['id']}/editor-access", data={"restricted": "1", "category_ids": [str(docs)]})
-    assert b"Create canvases" not in client.get(f"/admin/users/{editor['id']}/editor-access").data
-    form = client.get(f"/admin/users/{editor['id']}/permissions").data
-    assert b'value="canvas.create">' in form and b'value="page.create" checked' in form
-    assert may_create(app, db, editor) == (False, False)
-
-    # Where every editor may create, the limited one stops until an administrator ticks it again.
-    settings(db, canvas_write_access="editor")
-    assert may_create(app, db, editor)[0] is False
-    assert may_create(app, db, people["owner"])[0] is True
-    keys = sorted(perms.defaults("editor"))
-    client.post(f"/admin/users/{editor['id']}/permissions",
-                data={"permissions": keys, "write_restricted": "1", "write_category_ids": [str(docs)]})
-    assert may_create(app, db, editor)[0] is True
-    settings(db, canvas_write_access="admin")  # ticked there, it is a choice
-    assert may_create(app, db, editor) == (True, True)
+    assert client.get(f"/canvas/{mine['slug']}/data").get_json()["can_edit"] is False
+    assert client.post(f"/canvas/{mine['slug']}/delete").status_code == 302
 
 
 def test_rename_keeps_slug(client, login, people, app, db):
@@ -306,27 +201,27 @@ def test_rename_keeps_slug(client, login, people, app, db):
 
 
 def test_sharing_management(client, login, people, app, db):
-    settings(db, canvas_access="editor")
     layout = make_canvas(app, people["owner"])
     as_(client, login, people["owner"])
     url = f"/canvas/{layout['slug']}/share"
-    client.post(url, data={"action": "add_user", "username": "plain1", "permission": "edit"})
-    client.post(url, data={"action": "add_user", "username": "plain1", "permission": "view"})
+    client.post(url, data={"action": "add_user", "username": "plain1", "access_level": "edit"})
+    client.post(url, data={"action": "add_user", "username": "plain1", "access_level": "view"})
     rows = db.all("SELECT * FROM canvas__permissions WHERE layout_id = ?", (layout["id"],))
     assert [(r["user_id"], r["permission"]) for r in rows] == [(people["user"]["id"], "view")]
-    # Roles without global access cannot be shared with.
-    client.post(url, data={"action": "add_role", "role": "user", "permission": "view"})
-    client.post(url, data={"action": "add_role", "role": "editor", "permission": "edit"})
-    roles = db.column("SELECT role FROM canvas__permissions WHERE role IS NOT NULL AND layout_id = ?",
-                      (layout["id"],))
-    assert roles == ["editor"]
-    client.post(url, data={"action": "add_user", "username": "ghost", "permission": "view"})
+    # The same roles and levels as boards: no administrator role, no refusals.
+    client.post(url, data={"action": "add_role", "role": "admin", "access_level": "view"})
+    client.post(url, data={"action": "add_role", "role": "user", "access_level": "none"})
+    client.post(url, data={"action": "add_role", "role": "editor", "permission": "edit"})  # older field name
+    roles = db.all("SELECT role, permission FROM canvas__permissions WHERE role IS NOT NULL AND layout_id = ?",
+                   (layout["id"],))
+    assert [(r["role"], r["permission"]) for r in roles] == [("editor", "edit")]
+    client.post(url, data={"action": "add_user", "username": "ghost", "access_level": "view"})
     client.post(url, data={"action": "set_visibility", "visibility": "bogus"})
     assert db.scalar("SELECT visibility FROM canvas__layouts WHERE id = ?", (layout["id"],)) == "private"
     client.post(url, data={"action": "remove_user", "user_id": people["user"]["id"]})
     assert db.scalar("SELECT COUNT(*) FROM canvas__permissions WHERE user_id IS NOT NULL") == 0
     page = client.get(f"/canvas/{layout['slug']}/settings")
-    assert page.status_code == 200
+    assert page.status_code == 200 and b'value="members"' in page.data
 
 
 def test_transfer_and_delete(client, login, people, app, db):
@@ -343,7 +238,6 @@ def test_transfer_and_delete(client, login, people, app, db):
 
 
 def test_list_order_is_per_user_and_validated(client, login, people, app, db):
-    settings(db, canvas_access="editor")
     first = make_canvas(app, people["owner"], "Alpha")
     second = make_canvas(app, people["owner"], "Beta")
     hidden = make_canvas(app, people["admin"], "Hidden")
@@ -359,29 +253,25 @@ def test_list_order_is_per_user_and_validated(client, login, people, app, db):
     assert db.scalar("SELECT list_order_version FROM site_settings") == 0
 
 
-def test_shared_order_version_under_open_access(client, login, people, app, db):
-    settings(db, canvas_open_access=1)
-    first = make_canvas(app, people["owner"], "Alpha")
-    second = make_canvas(app, people["owner"], "Beta")
+def test_the_order_shared_under_open_access_is_kept_until_someone_arranges_their_own(client, login, people, app,
+                                                                                    db):
+    first = make_canvas(app, people["owner"], "Alpha", visibility="members")
+    second = make_canvas(app, people["owner"], "Beta", visibility="members")
+    db.executemany("INSERT INTO canvas_user_layout_order (user_id, layout_id, sort_order) VALUES (NULL, ?, ?)",
+                   [(first["id"], 0), (second["id"], 1)])
     as_(client, login, people["user"])
-    before = client.get("/api/canvas/list-order-version").get_json()["list_order_version"]
-    saved = client.post("/api/canvas/layout-order", json={"layout_ids": [second["id"], first["id"]]}).get_json()
-    assert saved["list_order_version"] != before
+    body = client.get("/canvas").data
+    assert body.index(b"Alpha") < body.index(b"Beta")
+    client.post("/api/canvas/layout-order", json={"layout_ids": [second["id"], first["id"]]})
+    body = client.get("/canvas").data
+    assert body.index(b"Beta") < body.index(b"Alpha")
     assert db.column("SELECT layout_id FROM canvas_user_layout_order WHERE user_id IS NULL ORDER BY sort_order") == [
-        second["id"], first["id"]]
+        first["id"], second["id"]]
 
 
-def test_admin_settings_page(client, login, people, db):
-    as_(client, login, people["owner"])
-    assert client.get("/admin/canvas").status_code == 403
+def test_there_is_no_canvas_settings_page(client, login, people):
     as_(client, login, people["admin"])
-    assert client.get("/admin/canvas").status_code == 200
-    client.post("/admin/canvas", data={"canvas_access": "all", "canvas_write_access": "bogus",
-                                      "canvas_open_access": "1"})
-    row = db.one("SELECT canvas_access, canvas_write_access, canvas_open_access, canvas_public_access_enabled "
-                 "FROM site_settings")
-    assert dict(row) == {"canvas_access": "all", "canvas_write_access": "admin", "canvas_open_access": 1,
-                         "canvas_public_access_enabled": 0}
+    assert client.get("/admin/canvas").status_code == 404
 
 
 def test_nav_link_and_embed_script_slot(client, login, people, app, db):
@@ -410,7 +300,6 @@ def test_canvas_export_hides_pages_the_exporter_cannot_read(app, client, db, log
     editor = make_user("restricted_ed", role="editor")
     restrict(db, editor, read=[visible["id"]], write=[visible["id"]])
     in_app(app, lambda: registry.set_enabled("canvas", True))
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'all' WHERE id = 1")
     layout = in_app(app, lambda: service.create("Mine", "", editor["id"]))
     login(client, editor)
     node = {"id": "n1", "type": "wiki_page", "x": 0, "y": 0, "page_id": page["id"]}
@@ -429,3 +318,37 @@ def test_node_dialog_takes_any_whole_pixel_size(client, login, people, app):
     for name in ("width", "height", "text_size"):
         field = re.search(rf'<input id="cn-[a-z-]+" name="{name}"[^>]*>', page)
         assert field and 'step="1"' in field.group(0), name
+
+
+# The settings page has one Save: the text, and for the owner the visibility too.
+
+
+def test_the_canvas_settings_save_stores_text_and_visibility(app, make_user, login, db):
+    owner = make_user("owner_c", role="editor")
+    layout = make_canvas(app, owner)
+    client = app.test_client()
+    login(client, owner)
+    page = client.get(f"/canvas/{layout['slug']}/settings").get_data(as_text=True)
+    assert 'name="visibility" form="canvas-info-form"' in page
+    response = client.post(f"/canvas/{layout['slug']}/edit", data={"title": "Plan B", "description": "",
+                                                                    "visibility": "members"})
+    assert response.status_code == 302
+    assert db.one("SELECT title, visibility FROM canvas__layouts WHERE id = ?", (layout["id"],)) == {
+        "title": "Plan B", "visibility": "members"}
+    # A visibility that does not exist changes nothing, the text neither.
+    client.post(f"/canvas/{layout['slug']}/edit", data={"title": "Plan C", "description": "", "visibility": "x"})
+    assert db.one("SELECT title, visibility FROM canvas__layouts WHERE id = ?", (layout["id"],)) == {
+        "title": "Plan B", "visibility": "members"}
+
+
+def test_only_the_owner_saves_the_visibility(app, make_user, login, db):
+    owner, writer = make_user("owner_d", role="editor"), make_user("writer_d", role="editor")
+    layout = make_canvas(app, owner)
+    share(db, layout, "edit", user=writer)
+    client = app.test_client()
+    login(client, writer)
+    assert 'name="visibility"' not in client.get(f"/canvas/{layout['slug']}/settings").get_data(as_text=True)
+    assert client.post(f"/canvas/{layout['slug']}/edit", data={"title": "Mine", "description": "",
+                                                                "visibility": "public"}).status_code == 403
+    assert client.post(f"/canvas/{layout['slug']}/edit", data={"title": "Ours", "description": ""}).status_code == 302
+    assert db.one("SELECT title, visibility FROM canvas__layouts WHERE id = ?", (layout["id"],))["title"] == "Ours"

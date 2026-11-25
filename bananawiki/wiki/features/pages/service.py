@@ -9,15 +9,16 @@ Visibility
 A page is visible to a user when they can read its category and:
 
 * signed-in users hold ``page.view_all`` (administrators always do);
-* it is not pending deletion, unless they may delete pages;
+* it is not pending deletion, unless they may delete every page;
 * it is not hidden (``is_deindexed``), unless they may see hidden pages;
 * anonymous visitors (public mode) additionally never see builder pages that
   are not marked public.
 
 Editing
 -------
-Editors may change pages in categories they can write to. Plain users never
-edit directly (they propose contributions, see the governance feature).
+Pages in categories a person may write to are changed by holders of
+``page.edit_all`` and, for the pages they created (``pages.created_by``), of
+``page.edit_own``. Others may propose changes (the contributions feature).
 ``update`` takes the revision the editor started from and raises
 :class:`EditConflict` when someone saved in between.
 """
@@ -40,6 +41,7 @@ from werkzeug.exceptions import ServiceUnavailable
 
 from ....core.timeutil import now_sql
 from ... import auth, settings
+from ... import permissions as perms
 from ...db import db
 from ...i18n import t
 from ...registry import emit
@@ -55,7 +57,8 @@ MAX_REWRITE_HISTORY_CHARS = 4_000_000
 PAGE_COLUMNS = (
     "id, title, slug, category_id, is_home, sort_order, is_deindexed, pending_deletion, "
     "pending_deletion_by, pending_deletion_at, protected_by, protected_at, difficulty_tag, "
-    "tag_custom_label, tag_custom_color, last_edited_by, last_edited_at, created_at, revision, builder_public, "
+    "tag_custom_label, tag_custom_color, last_edited_by, last_edited_at, created_at, created_by, revision, "
+    "builder_public, "
     "CASE WHEN builder_json != '' THEN 1 ELSE 0 END AS has_builder"
 )
 
@@ -159,9 +162,14 @@ def can_view(page: dict[str, Any] | None, user: dict[str, Any] | None = None, *,
         return False
     if not auth.can_read_category(page.get("category_id"), user):
         return False
-    if _flag(page, "pending_deletion") and not auth.has_permission("page.delete", user):
+    if _flag(page, "pending_deletion") and not auth.has_permission("page.delete_all", user):
         return False
     return not (_flag(page, "is_deindexed") and not auth.has_permission("page.view_deindexed", user))
+
+
+def is_own(page: dict[str, Any], user: dict[str, Any] | None) -> bool:
+    """*user* created *page* (pages created before version 23 have no recorded creator)."""
+    return bool(user) and page.get("created_by") is not None and page.get("created_by") == user["id"]
 
 
 def can_edit(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
@@ -170,8 +178,10 @@ def can_edit(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
         return False
     if auth.is_admin(user):
         return True
-    return (auth.has_role("editor", user) and auth.has_permission("page.edit_all", user)
-            and auth.can_write_category(page.get("category_id"), user))
+    if not auth.can_write_category(page.get("category_id"), user):
+        return False
+    return auth.has_permission("page.edit_all", user) or (
+        is_own(page, user) and auth.has_permission("page.edit_own", user))
 
 
 def can_create(category_id: int | None, user: dict[str, Any] | None = None) -> bool:
@@ -180,8 +190,7 @@ def can_create(category_id: int | None, user: dict[str, Any] | None = None) -> b
         return False
     if auth.is_admin(user):
         return True
-    return (auth.has_role("editor", user) and auth.has_permission("page.create", user)
-            and auth.can_write_category(category_id, user))
+    return auth.has_permission("page.create", user) and auth.can_write_category(category_id, user)
 
 
 def can_delete(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
@@ -190,7 +199,10 @@ def can_delete(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool
         return False
     if auth.is_admin(user):
         return True
-    return can_edit(page, user) and auth.has_permission("page.delete", user)
+    if not can_edit(page, user):
+        return False
+    return auth.has_permission("page.delete_all", user) or (
+        is_own(page, user) and auth.has_permission("page.delete_own", user))
 
 
 def visible_filter(user: dict[str, Any] | None = None, alias: str = "p") -> tuple[str, list[Any]]:
@@ -218,17 +230,11 @@ def visible_filter(user: dict[str, Any] | None = None, alias: str = "p") -> tupl
     assert grants is not None
     parts: list[str] = []
     params: list[Any] = []
-    if not auth.has_permission("page.delete", user):
+    if not auth.has_permission("page.delete_all", user):
         parts.append(f"{a}.pending_deletion = 0")
     if not auth.has_permission("page.view_deindexed", user):
         parts.append(f"{a}.is_deindexed = 0")
-    readable: set[int] | None = None
-    if grants.read.restricted:
-        readable = set(grants.read.allowed)
-        if grants.role == "editor" and grants.write.restricted:
-            readable |= set(grants.write.allowed)
-        elif grants.role == "editor" and not grants.write.restricted:
-            readable = None
+    readable = perms.readable_category_ids(grants)
     if readable is not None:
         if readable:
             marks = ",".join("?" for _ in readable)
@@ -371,7 +377,7 @@ def create(
             "title": title, "slug": final_slug, "content": content, "category_id": category_id,
             "builder_json": builder_json or "", "builder_public": 1 if builder_public else 0,
             "sort_order": sort_order, "last_edited_by": author_id, "last_edited_at": now, "created_at": now,
-            "revision": 1,
+            "revision": 1, "created_by": author_id,
         })
         _record_history(page_id, title, content, author_id, edit_message or "Created",
                         builder_json=builder_json, builder_public=1 if builder_public else 0)

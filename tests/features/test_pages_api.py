@@ -139,15 +139,19 @@ def test_upload_image(app, admin_client):
     assert url.startswith("/static/uploads/") and admin_client.get(url).status_code == 200
 
 
-def test_upload_rejects_non_images_and_plain_users(app, admin_client, make_user, login):
+def test_upload_rejects_non_images_and_readers(app, admin_client, db, make_user, login):
     assert _upload(admin_client, io.BytesIO(b"<html>"), "evil.png").status_code == 400
     assert _upload(admin_client, io.BytesIO(b"text"), "notes.txt").status_code == 400
-    plain = _client(app, make_user, login, "uploader")
-    assert _upload(plain).status_code == 403
+    member = _client(app, make_user, login, "uploader")
+    assert _upload(member).status_code == 201  # members write pages
+    for key in ("page.create", "page.edit_own"):
+        db.execute("INSERT INTO base_role_permissions (role, permission_key, granted) VALUES ('user', ?, 0)", (key,))
+    assert _upload(member).status_code == 403
 
 
 def test_upload_daily_quota(app, admin_client, db):
-    db.execute("UPDATE site_settings SET upload_quota_per_day_count = 1 WHERE id = 1")
+    size = len(_png().getvalue())
+    db.execute("UPDATE site_settings SET upload_quota_per_day_bytes = ? WHERE id = 1", (size + size // 2,))
     assert _upload(admin_client).status_code == 201
     assert _upload(admin_client).status_code == 429
 

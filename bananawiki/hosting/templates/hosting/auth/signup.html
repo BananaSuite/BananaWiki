@@ -6,6 +6,7 @@
 {% block content %}
 <div class="card card--narrow">
   <h1>{{ t('hosting.signup.title') }}</h1>
+  {% if continuing %}<p>{{ t('hosting.signup.continue_to', app=continuing.name) }}</p>{% endif %}
   {% if first %}<div class="alert"><div class="alert__body">{{ t('hosting.signup.first_notice') }}</div></div>{% endif %}
   {% if mode == 'closed' %}
   <div class="alert alert--warning"><div class="alert__body">{{ t('hosting.signup.closed') }}</div></div>
@@ -15,6 +16,7 @@
     {{ ui.csrf() }}
     <input type="hidden" name="_form_time" value="{{ form_time }}">
     <input type="hidden" name="bootstrap_token" value="{{ bootstrap_token }}">
+    {% if next_url %}<input type="hidden" name="next" value="{{ next_url }}">{% endif %}
     <div class="visually-hidden" aria-hidden="true"><label>Website <input name="website" tabindex="-1" autocomplete="off"></label></div>
     {{ ui.field('username', t('hosting.field.username'), form.get('username', ''), required=true, hint=t('hosting.field.username_hint'), attrs={'autocomplete': 'username', 'maxlength': 30, 'pattern': '[A-Za-z0-9_\\-]{3,30}'}, error=field_error('username')) }}
     {% if ask_email %}{{ ui.field('email', t('hosting.field.email'), form.get('email', ''), type='email', required=email_required, attrs={'autocomplete': 'email', 'maxlength': 254}, error=field_error('email')) }}{% endif %}
@@ -25,12 +27,12 @@
     {% if mode == 'invite' %}{{ ui.field('invite_code', t('hosting.field.invite_code'), form.get('invite_code', ''), required=true, attrs={'maxlength': 32}, error=field_error('invite')) }}{% endif %}
     {% if use_case_required %}
     {{ ui.textarea('signup_use_case', t('hosting.signup.use_case'), form.get('signup_use_case', ''),
-        hint=t('hosting.signup.use_case_hint'), required=true, attrs={'minlength': 20, 'maxlength': 2000}, id='f-use', error=field_error('use_case')) }}
+        hint=t('hosting.signup.use_case_hint'), required=true, attrs={'minlength': 20, 'data-min-trimmed': 20, 'data-min-message': t('hosting.form.min_chars', count=20), 'maxlength': 2000}, id='f-use', error=field_error('use_case')) }}
     {% endif %}
     {% include "hosting/_terms_check.html" %}
     <button class="btn btn--primary" type="submit">{{ t('hosting.signup.submit') }}</button>
   </form>
   {% endif %}
-  <p class="small">{{ t('hosting.signup.have_account') }} <a href="{{ url_for('auth.login') }}">{{ t('hosting.login.submit') }}</a></p>
+  <p class="small">{{ t('hosting.signup.have_account') }} <a href="{{ url_for('auth.login', next=next_url or None) }}">{{ t('hosting.login.submit') }}</a></p>
 </div>
 {% endblock %}

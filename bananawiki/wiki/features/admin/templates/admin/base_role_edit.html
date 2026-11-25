@@ -1,0 +1,22 @@
+{% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
+{% from "admin/_categories.html" import permission_groups with context %}
+{% block title %}{{ t('admin.role.' ~ role) }} · {{ t('admin.roles.title') }}{% endblock %}
+{% block admin_content %}
+<nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
+  <li><a href="{{ url_for('admin.roles') }}">{{ t('admin.roles.title') }}</a></li><li aria-current="page">{{ t('admin.role.' ~ role) }}</li>
+</ol></nav>
+<header class="page-header page-header--save"><h1>{{ t('admin.roles.base_heading', role=t('admin.role.' ~ role)) }}</h1>
+  {{- forms.page_save('base-role-form') }}</header>
+<p class="muted">{{ t('admin.roles.base_intro') }}</p>
+<form method="post" class="form" id="base-role-form">
+  {{ forms.csrf() }}
+  {{ permission_groups(groups, keys) }}
+</form>
+{% if changed %}
+<section class="card">
+  <p>{{ t('admin.roles.base_reset_hint') }}</p>
+  {{ forms.post_button(url_for('admin.edit_base_role', role=role), t('admin.roles.base_reset_button'), 'btn', confirm=t('common.are_you_sure'), hidden={'action': 'reset'}) }}
+</section>
+{% endif %}
+{% endblock %}

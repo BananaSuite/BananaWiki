@@ -9,8 +9,6 @@ import pytest
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.canvas import service
 
-from .test_bm_mode import _save
-
 SIMPLE_RULE = '[data-bm-hide~="canvas.simple_tools"]{display:none!important}'
 SNAP_HELP = "G turns snapping to the grid on or off"
 GROUP_HELP = "Ctrl+G groups the selection"
@@ -58,7 +56,7 @@ def test_fewer_tools_leave_out_the_minimap_the_arrange_menu_and_their_keys(bm_pa
     # The keyboard help, read out through the stage's description, lists only keys that still work.
     assert 'aria-describedby="canvas-keys"' in bm_page and 'id="canvas-keys"' in bm_page
     assert SNAP_HELP not in bm_page and GROUP_HELP not in bm_page
-    assert UNLOCK_HELP in bm_page and "guide lines appear" in bm_page
+    assert UNLOCK_HELP in bm_page and "Guide lines appear" in bm_page
 
 
 def test_fewer_tools_keep_saving_as_an_image(bm_page):
@@ -80,12 +78,3 @@ def test_the_full_canvas_keeps_every_tool(app, make_user, login):
     assert "data-minimap" in page and "data-arrange-menu" in page
     assert SNAP_HELP in page and GROUP_HELP in page and UNLOCK_HELP not in page
     assert 'data-action="export-svg"' in page and 'class="canvas-menu__item" data-action="export-png"' in page
-
-
-def test_switching_fewer_tools_off_gives_the_whole_canvas_back(easy, admin, make_user, login):
-    chief = easy.test_client()
-    login(chief, admin)
-    assert _save(chief, mode=True, features=("canvas",), off=("canvas.simple_tools",)).status_code == 302
-    page = _canvas_page(easy, make_user, login, "bmoff")
-    assert SIMPLE_RULE not in page and "canvas.simple_tools" not in _simplified(page)
-    assert "data-minimap" in page and "data-arrange-menu" in page and SNAP_HELP in page

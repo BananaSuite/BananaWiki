@@ -5,9 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from flask import abort, redirect, render_template, request, url_for
+from flask import abort, jsonify, redirect, render_template, request, url_for
 
 from ... import auth, registry
+from ...i18n import t
 from . import access, categories, diff, presence, rendering, service
 from .blueprint import bp, page_url, rate_limited, visible_page_or_404
 
@@ -21,9 +22,22 @@ def _category_arg(value: str | None) -> int | None:
         abort(400)
 
 
+def _refusal(title: str, reason: tuple[str, dict[str, Any]], *, page: dict[str, Any] | None = None):
+    """A 403 that says why, in plain words (and what the reader can do about it, through the page's slot)."""
+    key, values = reason
+    if auth.wants_json():
+        return jsonify({"error": f"{t(title)} {t(key, **values)}"}), 403
+    return render_template("pages/refused.html", title=title, reason=t(key, **values), page=page), 403
+
+
 def _denied_edit(page: dict[str, Any]):
-    response = registry.intercept("page.edit_denied", page=page, user=auth.current_user())
-    return response if response is not None else abort(403)
+    user = auth.current_user()
+    response = registry.intercept("page.edit_denied", page=page, user=user)
+    if response is not None:
+        return response
+    if user is None:
+        return auth.redirect_to_login()
+    return _refusal("pages.why.title", access.why_not_edit(page, user), page=page)
 
 
 def _blocked_redirect(page: dict[str, Any]):
@@ -47,8 +61,13 @@ def _editable(slug: str) -> tuple[dict[str, Any], Any]:
 
 
 def _create_denied(category_id: int | None):
-    response = registry.intercept("page.create_denied", user=auth.current_user(), category_id=category_id)
-    return response if response is not None else abort(403)
+    user = auth.current_user()
+    response = registry.intercept("page.create_denied", user=user, category_id=category_id)
+    if response is not None:
+        return response
+    if user is None:
+        return auth.redirect_to_login()
+    return _refusal("pages.why.create_title", access.why_not_create(category_id, user))
 
 
 _THEN_ANCHOR = re.compile(r"[a-z][a-z0-9-]{0,40}")

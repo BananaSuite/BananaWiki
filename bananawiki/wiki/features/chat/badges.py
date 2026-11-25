@@ -13,13 +13,13 @@ from flask import render_template
 from markupsafe import Markup
 
 from ....core.timeutil import now_sql
-from ... import auth, settings
+from ... import auth
 from ...db import db
 from . import policy
 
 
 def enabled() -> bool:
-    return bool(settings.get("profile_group_badges_enabled"))
+    return True  # each member chooses per group; the wiki-wide switch was retired in version 24
 
 
 def visible_groups(user_id: str) -> list[dict[str, Any]]:

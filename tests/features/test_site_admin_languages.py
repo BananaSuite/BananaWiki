@@ -122,14 +122,12 @@ def test_builtin_override_and_download(app, admin_client):
     assert admin_client.get("/admin/interface-languages/xx/download").status_code == 404
 
 
-def test_every_builtin_language_can_be_the_documentation_language(admin_client, db):
-    from bananawiki.wiki.features.api_service import settings_rules
-
-    for code in i18n.BUILTIN_LANGUAGES:
-        admin_client.post("/admin/interface-languages/default",
-                          data={"interface_language": "en", "interface_language_fallback": code})
-        assert db.scalar("SELECT interface_language_fallback FROM site_settings") == code
-        assert settings_rules.RULES["interface_language_fallback"].parse(f" {code.upper()} ") == code
+def test_missing_texts_come_from_english(admin_client, db):
+    """The fallback language was a setting until version 24; it is English."""
+    page = admin_client.get("/admin/interface-languages").get_data(as_text=True)
+    assert 'name="interface_language_fallback"' not in page
+    admin_client.post("/admin/interface-languages/default", data={"interface_language": "it"})
+    assert db.scalar("SELECT interface_language FROM site_settings") == "it"
 
 
 # German, built in

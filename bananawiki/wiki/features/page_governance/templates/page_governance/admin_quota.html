@@ -1,4 +1,5 @@
 {% extends "admin/_layout.html" %}
+{% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('page_governance.quota.title_for', user=target_user.username) }}{% endblock %}
 {% block admin_content %}
 <nav class="breadcrumbs" aria-label="{{ t('common.breadcrumbs') }}"><ol>
@@ -6,6 +7,6 @@
   <li><a href="{{ url_for('admin.user_detail', user_id=target_user.id) }}">{{ target_user.username }}</a></li>
   <li aria-current="page">{{ t('page_governance.quota.title') }}</li>
 </ol></nav>
-<header class="page-header"><h1>{{ t('page_governance.quota.title_for', user=target_user.username) }}</h1></header>
+<header class="page-header page-header--save"><h1>{{ t('page_governance.quota.title_for', user=target_user.username) }}</h1>{{ forms.page_save('quota-form') }}</header>
 <div class="section-stack">{% include "page_governance/_quota_body.html" %}</div>
 {% endblock %}

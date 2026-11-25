@@ -16,9 +16,9 @@ def _calls(db) -> list[int]:
     return [row["status_code"] for row in db.all("SELECT status_code FROM api_service__audit_log ORDER BY id")]
 
 
-def test_nw1_2_calls_refused_for_scope_count_against_the_limit(app, make_user, db):
+def test_nw1_2_calls_refused_for_scope_count_against_the_limit(app, make_user, db, monkeypatch):
     enable_api(app, db)
-    db.execute("UPDATE site_settings SET api_service_rate_limit = 3 WHERE id = 1")
+    monkeypatch.setenv("BW_API_RATE_LIMIT", "3")
     user = make_user("scripted", role="user", api_access_enabled=1)
     token = issue(app, user, scopes=("pages",), write=False)
     client = app.test_client()
@@ -32,9 +32,9 @@ def test_nw1_2_calls_refused_for_scope_count_against_the_limit(app, make_user, d
     assert _calls(db) == [403, 403, 403, 429], "past the limit, one refusal per token and window is kept"
 
 
-def test_nw1_2_a_429_is_logged_again_in_the_next_window(app, make_user, db):
+def test_nw1_2_a_429_is_logged_again_in_the_next_window(app, make_user, db, monkeypatch):
     enable_api(app, db)
-    db.execute("UPDATE site_settings SET api_service_rate_limit = 1 WHERE id = 1")
+    monkeypatch.setenv("BW_API_RATE_LIMIT", "1")
     user = make_user("patient", role="user", api_access_enabled=1)
     token = issue(app, user, scopes=("pages",))
     client = app.test_client()

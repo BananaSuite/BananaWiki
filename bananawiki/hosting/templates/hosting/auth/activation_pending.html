@@ -3,5 +3,6 @@
 {% block content %}
 <div class="card card--narrow"><h1>{{ t('hosting.activation.pending_title') }}</h1><p>{{ t('hosting.activation.pending_body') }}</p>
 <p>{% if current_account.email and email_ready() %}{{ t('hosting.activation.pending_email', email=current_account.email) }}{% else %}{{ t('hosting.activation.pending_no_email') }}{% endif %}</p>
+{% include "hosting/_signup_return.html" %}
 {% include "hosting/_contact.html" %}</div>
 {% endblock %}

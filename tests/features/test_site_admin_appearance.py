@@ -80,7 +80,7 @@ def test_favicon_upload_select_and_serve(app, admin_client, db):
     assert response.status_code == 302
     settings = row(db)
     name = settings["favicon_custom"]
-    assert name.startswith("custom_") and settings["favicon_type"] == "custom" and settings["favicon_enabled"] == 1
+    assert name.startswith("custom_") and settings["favicon_type"] == "custom"
     assert json.loads(settings["favicon_order"]) == [name]
     assert os.path.isfile(os.path.join(app.config["BW"].folders.favicons, name))
     page = admin_client.get("/").get_data(as_text=True)
@@ -88,10 +88,42 @@ def test_favicon_upload_select_and_serve(app, admin_client, db):
     assert admin_client.get(f"/static/favicons/{name}").status_code == 200
 
 
-def test_favicon_enabled_off_uses_the_default(admin_client, db):
+def test_the_old_favicon_switch_selects_the_default_icon(admin_client, db):
     upload_icon(admin_client)
     admin_client.post("/admin/appearance/favicon/enabled", data={"favicon_enabled": "0"})
-    assert "banana_yellow.png" in admin_client.get("/admin/appearance").get_data(as_text=True).split("<body")[0]
+    page = admin_client.get("/admin/appearance").get_data(as_text=True)
+    assert "banana_yellow.png" in page.split("<body")[0]
+    assert row(db)["favicon_type"] == "yellow" and 'name="favicon_enabled"' not in page
+
+
+def test_the_chosen_icon_is_used_without_a_second_switch(app, admin_client, db):
+    """favicon_enabled is retired: an icon is chosen once, and neither the form nor the API turns it off."""
+    from bananawiki.wiki import settings
+    from bananawiki.wiki.features.api_service import settings_rules
+
+    db.execute("UPDATE site_settings SET favicon_enabled = 0, favicon_type = 'green'")
+    assert "banana_green.png" in admin_client.get("/").get_data(as_text=True).split("<body")[0]
+    with app.test_request_context():
+        assert "favicon_enabled" not in settings.writable_columns()
+        _updates, _invalid, refused = settings_rules.check({"favicon_enabled": 1}, settings.load())
+    assert "favicon_enabled" in refused
+
+
+def test_upgrading_selects_the_icon_a_switched_off_favicon_showed():
+    import sqlite3
+
+    from bananawiki.wiki.migrations import v22_merged_settings
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE site_settings (id INTEGER PRIMARY KEY, favicon_enabled INTEGER, favicon_type TEXT, "
+                 "favicon_custom TEXT)")
+    conn.execute("INSERT INTO site_settings VALUES (1, 0, 'custom', 'custom_a.png')")
+    v22_merged_settings.upgrade(conn)
+    assert conn.execute("SELECT favicon_enabled, favicon_type, favicon_custom FROM site_settings").fetchone() == (
+        1, "yellow", "")
+    conn.execute("UPDATE site_settings SET favicon_type = 'green'")
+    v22_merged_settings.upgrade(conn)
+    assert conn.execute("SELECT favicon_type FROM site_settings").fetchone() == ("green",), "a chosen icon stays"
 
 
 def test_non_images_are_refused(admin_client, db):

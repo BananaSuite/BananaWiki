@@ -78,7 +78,7 @@ def _import(client, count: int):
 
 
 def test_mw3_2_canvas_import_counts_its_images_against_the_daily_quota(app, client, make_user, login, db):
-    db.execute("UPDATE site_settings SET upload_quota_per_day_count = 5, canvas_write_access = 'editor' WHERE id = 1")
+    db.execute("UPDATE site_settings SET upload_quota_per_day_count = 5 WHERE id = 1")
     editor = make_user("eddie", role="editor")
     login(client, editor)
     before = _upload_files(app)
@@ -97,7 +97,7 @@ def test_mw3_2_canvas_import_counts_its_images_against_the_daily_quota(app, clie
 
 
 def test_mw3_2_canvas_import_obeys_the_daily_byte_quota(app, client, make_user, login, db):
-    db.execute("UPDATE site_settings SET upload_quota_per_day_bytes = 1, canvas_write_access = 'editor' WHERE id = 1")
+    db.execute("UPDATE site_settings SET upload_quota_per_day_bytes = 1 WHERE id = 1")
     editor = make_user("eddie", role="editor")
     login(client, editor)
     before = _upload_files(app)
@@ -110,7 +110,7 @@ def test_mw3_2_an_import_refused_when_the_canvas_is_created_costs_no_quota(app, 
                                                                           monkeypatch):
     from bananawiki.wiki.features.canvas import model
 
-    db.execute("UPDATE site_settings SET upload_quota_per_day_count = 5, canvas_write_access = 'editor' WHERE id = 1")
+    db.execute("UPDATE site_settings SET upload_quota_per_day_count = 5 WHERE id = 1")
     editor = make_user("eddie", role="editor")
     login(client, editor)
     before = _upload_files(app)
@@ -132,7 +132,6 @@ def test_mw3_2_an_import_refused_when_the_canvas_is_created_costs_no_quota(app, 
 
 
 def test_mw3_3_board_creation_is_rate_limited(app, client, make_user, login, db, frozen_limiter_clock):
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'editor' WHERE id = 1")
     login(client, make_user("eddie", role="editor"))
     codes = [client.post("/kanban/create", data={"title": f"B{n}"}).status_code for n in range(12)]
     assert codes[:10] == [302] * 10
@@ -144,7 +143,6 @@ def test_mw3_3_rest_board_creation_shares_the_per_account_limit(app, client, mak
                                                                 frozen_limiter_clock):
     from tests.features.api_support import call, enable_api, issue
 
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'editor' WHERE id = 1")
     enable_api(app, db)
     eddie = make_user("eddie", role="editor")
     db.execute("UPDATE users SET api_access_enabled = 1 WHERE id = ?", (eddie["id"],))
@@ -222,7 +220,6 @@ def test_mw3_3_the_archived_list_is_capped(app, admin_client, admin, db, monkeyp
 
 
 def _canvas_with_editor(app, client, make_user, login, db):
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     login(client, make_user("owner1", role="editor"))
     assert client.post("/canvas/create", data={"title": "Big"}).status_code == 302
     return db.one("SELECT id, slug FROM canvas__layouts WHERE title = 'Big'")
@@ -327,7 +324,6 @@ def test_mw3_4_large_canvas_budget_is_shared_with_the_rest_api(app, client, make
 
 def test_mw3_5_private_canvas_shared_with_a_person_survives_its_creators_deletion(app, client, make_user, login,
                                                                                   db):
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     boss = make_user("boss", role="admin")
     alice = make_user("alice", role="editor")
     bob = make_user("bobby", role="user")
@@ -339,9 +335,6 @@ def test_mw3_5_private_canvas_shared_with_a_person_survives_its_creators_deletio
     assert plan["visibility"] == "private"
     assert client.post(f"/canvas/{plan['slug']}/share", data={"action": "add_user", "user_id": bob["id"],
                                                                "permission": "edit"}).status_code == 302
-    # A share that grants nothing does not make the diary anyone else's.
-    db.execute("INSERT INTO canvas__permissions (layout_id, user_id, permission) VALUES (?, ?, 'none')",
-               (diary, bob["id"]))
     other = app.test_client()
     other.environ_base["REMOTE_ADDR"] = "10.0.0.9"
     login(other, bob)
@@ -358,7 +351,6 @@ def test_mw3_5_private_canvas_shared_with_a_person_survives_its_creators_deletio
 
 
 def test_mw3_5_private_canvas_shared_with_a_role_survives_self_deletion(app, client, make_user, login, db):
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     boss = make_user("boss", role="admin")
     alice = make_user("alice", role="editor")
     login(client, alice)
@@ -376,7 +368,6 @@ def test_mw3_5_private_canvas_shared_with_a_role_survives_self_deletion(app, cli
 def test_mw3_5_portal_removal_keeps_canvases_others_use(app, client, make_user, login, db):
     from bananawiki.ops import tenant_task
 
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     boss = make_user("boss", role="admin")
     alice = make_user("alice", role="editor")
     bob = make_user("bobby", role="user")
@@ -387,7 +378,7 @@ def test_mw3_5_portal_removal_keeps_canvases_others_use(app, client, make_user, 
     shared = db.scalar("SELECT id FROM canvas__layouts WHERE title = 'Shared plan'")
     assert client.post(f"/canvas/{plan['slug']}/share", data={"action": "add_user", "user_id": bob["id"],
                                                                "permission": "edit"}).status_code == 302
-    db.execute("UPDATE canvas__layouts SET visibility = 'shared' WHERE id = ?", (shared,))
+    db.execute("UPDATE canvas__layouts SET visibility = 'members' WHERE id = ?", (shared,))
 
     assert tenant_task.remove_user(app.config["BW"], {"username": "alice"}) == {}
     assert db.scalar("SELECT COUNT(*) FROM users WHERE id = ?", (alice["id"],)) == 0
@@ -398,10 +389,9 @@ def test_mw3_5_portal_removal_keeps_canvases_others_use(app, client, make_user, 
 
 
 @pytest.mark.parametrize("remover", ["wiki", "portal"])
-def test_mw3_5_private_canvas_under_open_access_survives_its_creators_deletion(app, client, make_user, login, db,
-                                                                              remover):
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor', "
-               "canvas_open_access = 1 WHERE id = 1")
+def test_mw3_5_canvas_every_member_edits_survives_its_creators_deletion(app, client, make_user, login, db, remover):
+    # What the retired open access became (version 23): visible to members, who all edit every canvas.
+    db.execute("INSERT INTO base_role_permissions VALUES ('user', 'canvas.edit_all', 1)")
     boss = make_user("boss", role="admin")
     alice = make_user("alice", role="editor")
     bob = make_user("bobby", role="user")
@@ -410,7 +400,8 @@ def test_mw3_5_private_canvas_under_open_access_survives_its_creators_deletion(a
         assert client.post("/canvas/create", data={"title": title}).status_code == 302
     plan = db.one("SELECT id, slug, visibility FROM canvas__layouts WHERE title = 'Team plan'")
     assert plan["visibility"] == "private"
-    # An archived canvas is the creator's alone again, even under open access.
+    db.execute("UPDATE canvas__layouts SET visibility = 'members' WHERE title = 'Team plan'")
+    # An archived private canvas stays the creator's alone (version 23 left those private).
     db.execute("UPDATE canvas__layouts SET is_archived = 1 WHERE title = 'Old diary'")
     other = app.test_client()
     other.environ_base["REMOTE_ADDR"] = "10.0.0.9"
@@ -438,11 +429,10 @@ def test_mw3_4_changes_skipped_by_the_throttle_reach_history_before_a_new_entry(
     from bananawiki.wiki.features.canvas import service
 
     monkeypatch.setattr(service, "LARGE_DOCUMENT_BYTES", 2000)
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor', "
-               "canvas_open_access = 1 WHERE id = 1")
     alice, bob = make_user("alice", role="editor"), make_user("bobby", role="editor")
     login(client, alice)
     assert client.post("/canvas/create", data={"title": "Big"}).status_code == 302
+    db.execute("UPDATE canvas__layouts SET visibility = 'members'")  # editors edit every canvas they see
     canvas = db.one("SELECT id, slug FROM canvas__layouts WHERE title = 'Big'")
     assert _ops(client, canvas["slug"], *(_node(i) for i in range(10))).status_code == 200
     assert _ops(client, canvas["slug"], _node(0, 1)).status_code == 200  # within the minute: not written yet

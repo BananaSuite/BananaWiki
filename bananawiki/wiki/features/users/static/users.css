@@ -104,3 +104,8 @@ a.users-member__identity:hover strong, a.users-member__identity:focus-visible st
   .users-session__facts { display: grid; gap: .1rem; }
   .users-session__facts > span + span::before { content: none; }
 }
+
+/* Settings → Security → Sign-in methods (the auth feature's section): one block per method. */
+.signin-method { padding-top: .75rem; border-top: 1px solid color-mix(in srgb, var(--bw-text) 12%, transparent); }
+.signin-method:first-of-type { border-top: 0; padding-top: 0; }
+.signin-method__title { font-size: 1rem; margin: 0 0 .35rem; }

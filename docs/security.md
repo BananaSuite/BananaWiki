@@ -98,11 +98,13 @@ should configure. To report a vulnerability see [SECURITY.md](../SECURITY.md).
   for every account. API tokens and impersonation do not involve it, but
   while it is required of administrators an administrator who has not
   turned it on cannot use their API tokens either (`403 two_step_required`).
-  * **Codes:** after the password, or after the hosting portal's sign-in,
-    the wiki asks for a 6-digit code from an authenticator app (TOTP,
+  * **Codes:** after the password the wiki asks for a 6-digit code from an authenticator app (TOTP,
     30-second steps, each code accepted once) or one of ten single-use
-    recovery codes. The pending sign-in lasts five minutes and lapses when
-    the password changes. **Back to sign-in** on the code page is a form,
+    recovery codes. A sign-in through the hosting portal is not asked (and an
+    administrator who must use two-step verification is not sent to set it
+    up in that session): the portal asks for its own code, and the wiki's
+    codes guard its passwords. The pending sign-in lasts five minutes and
+    lapses when the password changes. **Back to sign-in** on the code page is a form,
     so it clears the password step.
   * **Changes:** turning it on, turning it off and making new recovery codes
     take the password and a code. Turning it on signs out the account's
@@ -215,6 +217,39 @@ With hosting accounts only:
   the portal is asked to drop it after the merge), so its hosting account can
   connect another account on its next sign-in.
 
+### Confirming with BananaWiki Hosting and acting administrators
+
+* **Instead of the password.** Every form that asks for the account's own
+  password before a change (the password, two-step verification, the user
+  name, the owner role, deleting the account, merges, plugins, the site
+  export and import, connecting and disconnecting the portal) also offers
+  **Confirm with BananaWiki Hosting** to a connected account. The wiki asks
+  the portal for a fresh sign-in (`prompt=login`, `max_age=0`) with a state
+  bound to this session, the account and the page; it accepts only the
+  linked portal account, only an `auth_time` from after the confirmation
+  started (60 seconds of clock difference), never an answer with `act`, and
+  a portal that sends no `auth_time` never confirms. The confirmation stands
+  for the password for ten minutes in this session only
+  (`user_sessions.reverified_at`, audited as `user.reverified`). Accounts
+  created through the portal (`users.password_set` 0) have only this option
+  and may set a password after it.
+* **Sign-in methods.** Connecting needs the password (or a recent
+  confirmation) and a portal sign-in bound to the session; a hosting account
+  connected to someone else is refused. Disconnecting needs a password of
+  the account's own and a wiki that does not take hosting accounts only.
+* **Acting hosting administrators.** When the portal lets an administrator
+  who acts as a portal account sign in to wikis (its `admin_app_signin`), the
+  userinfo carries `act` and `act_expires_at`. The wiki accepts it only while
+  **Allow hosting administrators to sign in as users** is on (switching it
+  off ends such sessions at once), only for the wiki account already linked
+  to that portal account (an unknown one is refused: nothing is linked or
+  created while acting), never remembered, and ending at `act_expires_at`.
+  A banner names the administrator on every page; every audit entry of the
+  session carries `hosting_admin`; the password, two-step verification, the
+  email address, sign-in methods, deleting the account, API keys, the
+  account's sessions, impersonation, confirmations and forced account steps
+  are out of reach.
+
 ## Access control
 
 * Views are **private by default**: without a session every page redirects
@@ -297,7 +332,8 @@ the sanitised spacing styles page content may use.
 Chromium-based browsers also apply `form-action` to the redirect that follows
 a form submission. Two pages answer their form with a redirect to another
 site, so their own response adds that origin (never a path) to `form-action`:
-the wiki's `/settings/link-platform-account` adds the portal's (from
+the wiki's **Settings → Security** (Connect) and every page offering
+**Confirm with BananaWiki Hosting** add the portal's (from
 `BW_PLATFORM_OAUTH_AUTHORIZE_URL`), and the portal's OAuth consent page adds
 the wiki's, taken from a redirect URI already checked against the wiki's
 address and verified domain. Every other page keeps `form-action 'self'`.
@@ -519,9 +555,10 @@ account and address:
 Only owners and superusers can switch the audit log off (the switch is
 recorded as its last entry), whichever page switches it: the plugin manager
 or the onboarding wizard, which leaves the log out of the features it offers
-a plain administrator. Every feature switch is recorded. Owners and
-superusers also change the retention (0 keeps entries forever; the
-`audit.prune` job applies it and records how many entries it deleted). A
+a plain administrator. Every feature switch is recorded. Entries are kept a
+year; the server's operator changes that with `BW_AUDIT_RETENTION_DAYS` (0
+keeps them forever; the `audit.prune` job applies it and records how many
+entries it deleted). No page of the wiki shortens it. A
 site import keeps the live log and appends it to the archive's, without the
 entries the archive already holds.
 The plugin manager's own steps also go to the application log

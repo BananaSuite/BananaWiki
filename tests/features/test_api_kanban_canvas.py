@@ -10,6 +10,7 @@ from bananawiki.wiki.features.canvas import service as canvas_service
 from bananawiki.wiki.features.kanban import service as kanban_service
 from bananawiki.wiki.features.kanban import store as kanban_store
 
+from .access_support import members_see, role_default
 from .api_support import call, enable_api, issue
 from .pages_support import in_app, set_feature
 
@@ -29,17 +30,12 @@ def people(make_user):
     }
 
 
-def settings(db, **values):
-    for name, value in values.items():
-        db.execute(f"UPDATE site_settings SET {name} = ? WHERE id = 1", (value,))
-
-
 # Kanban
 
 
 @pytest.fixture
 def board(api_app, people):
-    """A public board of the administrator with the three default columns."""
+    """A board of the administrator (private) with the three default columns."""
     return in_app(api_app, lambda: kanban_service.create_board(people["admin"], "Roadmap", "Plans"))
 
 
@@ -116,17 +112,19 @@ def test_kanban_hidden_boards_are_404_and_read_only_is_403(api_app, client, db, 
     column = board_columns(api_app, board["id"])[0]["id"]
     ticket = in_app(api_app, lambda: kanban_service.create_ticket(board, board_columns(api_app, board["id"])[0],
                                                                   people["admin"], {"title": "Secret"}))
-    # Default settings: only administrators reach kanban.
+    # A new board is private: others do not see it.
     assert call(client, "GET", "/kanban/boards", member).json["boards"] == []
     for method, path in (("GET", f"/kanban/boards/{board['id']}"), ("GET", f"/kanban/tickets/{ticket['id']}"),
                          ("GET", f"/kanban/tickets/{ticket['id']}/comments"),
                          ("PUT", f"/kanban/columns/{column}"), ("DELETE", f"/kanban/tickets/{ticket['id']}"),
                          ("POST", f"/kanban/tickets/{ticket['id']}/comments")):
         assert call(client, method, path, member, json={"title": "x", "content": "x"}).status_code == 404, path
-    assert call(client, "POST", "/kanban/boards", member, json={"title": "Mine"}).json["code"] == "cannot_create_board"
+    assert call(client, "POST", "/kanban/boards", member, json={"title": "Mine"}).status_code == 201  # members create
+    role_default(db, "user", "kanban.create", False)
+    assert call(client, "POST", "/kanban/boards", member, json={"title": "No"}).json["code"] == "cannot_create_board"
 
-    # Everyone may view, only administrators may write.
-    settings(db, kanban_access="all", kanban_write_access="admin")
+    # Members see it, only edit shares or kanban.edit_all change it.
+    members_see(db)
     assert call(client, "GET", f"/kanban/boards/{board['id']}", member).status_code == 200
     refused = call(client, "PUT", f"/kanban/tickets/{ticket['id']}", member, json={"title": "Mine"})
     assert refused.status_code == 403 and refused.json["code"] == "board_forbidden"
@@ -159,7 +157,6 @@ def test_kanban_moves_stay_on_the_board(api_app, client, board, people):
 
 
 def test_kanban_board_owner_actions(api_app, client, db, people):
-    settings(db, kanban_access="editor", kanban_write_access="editor")
     token = issue(api_app, people["editor"], ["kanban"])
     created = call(client, "POST", "/kanban/boards", token, json={"title": "Team", "default_columns": False})
     assert created.status_code == 201 and created.json["board"]["is_owner"] is True
@@ -231,7 +228,6 @@ def test_canvas_access_rules(api_app, client, db, layout, people):
     member = issue(api_app, people["member"], ["canvas"])
     assert call(client, "GET", "/canvas", member).json["canvases"] == []
     assert call(client, "GET", f"/canvas/{layout['slug']}", member).status_code == 404
-    assert call(client, "POST", "/canvas", member, json={"title": "Mine"}).json["code"] == "cannot_create_canvas"
     db.execute("INSERT INTO canvas__permissions (layout_id, user_id, permission) VALUES (?, ?, 'view')",
                (layout["id"], people["member"]["id"]))
     assert call(client, "GET", f"/canvas/{layout['slug']}", member).json["canvas"]["can_edit"] is False
@@ -243,13 +239,19 @@ def test_canvas_access_rules(api_app, client, db, layout, people):
                 json={"ops": [{"op": "upsert_node", "node": NODE}]}).status_code == 200
     assert call(client, "PUT", f"/canvas/{layout['slug']}", member, json={"visibility": "public"}).status_code == 403
     assert call(client, "DELETE", f"/canvas/{layout['slug']}", member).status_code == 403
+    db.execute("DELETE FROM canvas__permissions")
+    members_see(db, "canvas__layouts")
+    seen = call(client, "GET", f"/canvas/{layout['slug']}", member).json["canvas"]
+    assert seen["can_edit"] is False and seen["visibility"] == "members"
+    editor = issue(api_app, people["editor"], ["canvas"])  # editors hold canvas.edit_all
+    assert call(client, "GET", f"/canvas/{layout['slug']}", editor).json["canvas"]["can_edit"] is True
 
 
 def test_canvas_create_and_feature_switch(api_app, client, db, people):
-    settings(db, canvas_access="editor", canvas_write_access="editor")
-    token = issue(api_app, people["editor"], ["canvas"])
+    token = issue(api_app, people["member"], ["canvas"])
     created = call(client, "POST", "/canvas", token, json={"title": "Board", "data": {"nodes": [NODE], "edges": []}})
     assert created.status_code == 201 and created.json["canvas"]["is_owner"] is True
+    assert created.json["canvas"]["visibility"] == "private"
     slug = created.json["canvas"]["slug"]
     assert [node["id"] for node in call(client, "GET", f"/canvas/{slug}", token).json["data"]["nodes"]] == ["n1"]
     assert call(client, "POST", "/canvas", token, json={"title": ""}).json["field"] == "title"
@@ -257,30 +259,23 @@ def test_canvas_create_and_feature_switch(api_app, client, db, people):
     assert call(client, "GET", f"/canvas/{slug}", token).status_code == 404
 
 
-def test_canvas_create_below_the_write_role_needs_an_explicit_grant(api_app, client, db, people, make_user):
-    """The API follows the web interface: the editors' default does not pass, an individual grant does."""
-    from bananawiki.wiki import permissions as perms
-
-    editor = issue(api_app, people["editor"], ["canvas"])
-    refused = call(client, "POST", "/canvas", editor, json={"title": "Nope"})
+def test_canvas_create_follows_the_permission(api_app, client, db, people, make_user):
+    """The API follows the web interface: canvas.create, from the role's defaults or a custom role."""
+    role_default(db, "user", "canvas.create", False)
+    member = issue(api_app, people["member"], ["canvas"])
+    refused = call(client, "POST", "/canvas", member, json={"title": "Nope"})
     assert refused.status_code == 403 and refused.json["code"] == "cannot_create_canvas"
 
-    db.execute("INSERT INTO user_category_access (user_id, access_type, restricted) VALUES (?, 'read', 0)",
-               (people["member"]["id"],))
-    db.executemany("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)",
-                   [(people["member"]["id"], key) for key in perms.defaults("user") | {"canvas.create"}])
-    member = issue(api_app, people["member"], ["canvas"])
-    created = call(client, "POST", "/canvas", member, json={"title": "Class map"})
-    assert created.status_code == 201 and created.json["canvas"]["is_owner"] is True
-    assert [row["slug"] for row in call(client, "GET", "/canvas", member).json["canvases"]] == ["class-map"]
-
-    maker = make_user("mapmaker", role="editor", api_access_enabled=1)
-    role_id = db.insert("custom_roles", {"name": "Map makers", "base_role": "editor",
+    maker = make_user("mapmaker", api_access_enabled=1)
+    role_id = db.insert("custom_roles", {"name": "Map makers", "base_role": "user",
                                          "created_at": "2026-01-01 00:00:00", "updated_at": "2026-01-01 00:00:00"})
     db.executemany("INSERT INTO custom_role_permissions (role_id, permission_key) VALUES (?, ?)",
-                   [(role_id, key) for key in perms.defaults("editor")])
+                   [(role_id, key) for key in ("canvas.view", "canvas.create")])
     db.execute("UPDATE users SET custom_role_id = ? WHERE id = ?", (role_id, maker["id"]))
-    assert call(client, "POST", "/canvas", issue(api_app, maker, ["canvas"]), json={"title": "Map"}).status_code == 201
+    created = call(client, "POST", "/canvas", issue(api_app, maker, ["canvas"]), json={"title": "Class map"})
+    # Created, edited... but not shared: the role leaves out canvas.edit_own and canvas.share_own.
+    assert created.status_code == 201 and created.json["canvas"]["is_owner"] is False
+    assert created.json["canvas"]["can_edit"] is False
 
     admin = issue(api_app, people["admin"], ["canvas"])
     assert call(client, "POST", "/canvas", admin, json={"title": "Teacher map"}).status_code == 201

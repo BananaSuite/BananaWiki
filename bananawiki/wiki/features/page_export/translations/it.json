@@ -11,7 +11,7 @@
   "page_export.bulk.bullet.title": "Il titolo viene preso dall'intestazione del file (front matter), dal primo titolo # o dal nome del file.",
   "page_export.bulk.existing": "Se la pagina esiste già",
   "page_export.bulk.export_button": "Scarica l'archivio Markdown",
-  "page_export.bulk.export_intro": "Uno ZIP di tutte le pagine come file Markdown in cartelle per categoria, con immagini e allegati. Utenti, cronologia e impostazioni non sono inclusi.",
+  "page_export.bulk.export_intro": "Uno ZIP di tutte le pagine in Markdown, in cartelle per categoria, con immagini e allegati. Utenti, cronologia e impostazioni non sono inclusi.",
   "page_export.bulk.export_title": "Esporta",
   "page_export.bulk.files": "File",
   "page_export.bulk.import_button": "Importa",

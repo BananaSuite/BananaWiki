@@ -20,7 +20,7 @@
       <label class="check"><input type="radio" name="direction" value="into_other"> <span>{{ t('users.merge.into_other', user=user.username) }}</span></label>
     </fieldset>
     {{ forms.textarea('reason', t('users.merge.reason'), '', rows=3) }}
-    {{ m.password('merge-password', t('auth.field.current_password'), hint=t('users.merge.steps')) }}
+    {{ m.current_password('merge-password') }}
     <div class="btn-row">
       <button class="btn btn--primary" type="submit">{{ t('users.merge.submit') }}</button>
       <a class="btn" href="{{ url_for('users.merge_pending') }}">{{ t('common.cancel') }}</a>

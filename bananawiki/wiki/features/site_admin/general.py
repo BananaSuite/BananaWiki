@@ -76,50 +76,40 @@ SECTIONS: list[tuple[str, list[Field]]] = [
     ("general", [
         Field("site_name", "text", max_length=100, empty="BananaWiki"),
         Field("timezone", "choice", choices=time_zones),
+        Field("new_user_intro_enabled", "flag"),
+        Field("draft_expiration_hours", "number", minimum=0, maximum=8760),
+        Field("pdf_export_enabled", "flag"),
     ]),
     ("access", [
         Field("public_mode", "flag", locked=_public_mode_locked),
         Field("public_mode_until", "until", depends_on="public_mode", locked=_public_mode_locked,
               reveal=("public_mode", "1")),
-        Field("public_mode_show_message", "flag", locked=_public_mode_locked, reveal=("public_mode", "1")),
         Field("public_mode_message", "textarea", max_length=1000, empty="", locked=_public_mode_locked,
-              reveal=("public_mode_show_message", "1")),
+              reveal=("public_mode", "1")),
         Field("open_signup", "flag"),
         Field("open_signup_until", "until", depends_on="open_signup", reveal=("open_signup", "1")),
         Field("approval_required", "flag"),
-        Field("approval_pending_timeout_hours", "number", minimum=0, maximum=8760, reveal=("approval_required", "1")),
-        Field("approval_denied_timeout_hours", "number", minimum=1, maximum=8760, reveal=("approval_required", "1")),
         Field("maintenance_mode", "flag"),
         Field("maintenance_message", "textarea", max_length=1000, empty="", reveal=("maintenance_mode", "1")),
     ]),
     ("security", [
+        Field("signin_mode", "choice", options=signin_modes.MODES, locked=_signin_mode_locked,
+              visible=signin_modes.configured, check=_signin_mode_check, optional=True),
+        Field("platform_allow_acting", "flag", visible=signin_modes.configured),
+        Field("login_app_selector", "flag"),
         Field("session_limit_enabled", "flag"),
+        Field("auto_logout_enabled", "flag"),
         Field("bot_protection_enabled", "flag"),
         Field("suspended_account_deletion_enabled", "flag"),
         Field("two_step_required_for_admins", "flag", locked=_two_step_requirement_locked),
-    ]),
-    ("signin", [
-        Field("signin_mode", "choice", options=signin_modes.MODES, locked=_signin_mode_locked,
-              visible=signin_modes.configured, check=_signin_mode_check, optional=True),
-        Field("login_app_selector", "flag"),
-        Field("new_user_intro_enabled", "flag"),
-        Field("onboarding_replay_disabled", "flag"),
-        Field("intro_role_switching_enabled", "flag"),
-        Field("intro_role_switching_roles", "roles", options=ROLES, reveal=("intro_role_switching_enabled", "1")),
     ]),
     ("uploads", [
         Field("upload_mode", "choice", options=("allow_all", "whitelist", "blacklist")),
         Field("upload_whitelist", "extensions", max_length=2000, reveal=("upload_mode", "whitelist")),
         Field("upload_blacklist", "extensions", max_length=2000, reveal=("upload_mode", "blacklist")),
         Field("upload_max_size_mb", "number", minimum=1, maximum=2048, locked=_platform_owned),
-        Field("upload_quota_per_day_count", "number", minimum=0, maximum=100_000),
-        Field("upload_quota_per_day_bytes", "megabytes", minimum=0, maximum=100_000),
-    ]),
-    ("content", [
-        Field("draft_expiration_hours", "number", minimum=0, maximum=8760),
-        Field("pdf_export_enabled", "flag"),
-        Field("markdown_export_enabled", "flag"),
-        Field("profile_contribution_chart_enabled", "flag", visible=_profiles_enabled),
+        Field("upload_quota_per_day_count", "number", minimum=0, maximum=100_000, advanced=True),
+        Field("upload_quota_per_day_bytes", "megabytes", minimum=0, maximum=100_000, advanced=True),
     ]),
 ]
 
@@ -181,7 +171,7 @@ def _render(section: str, values: dict[str, Any], errors: dict[str, Any], status
         sections=SECTIONS, section=section, fields=section_fields(section), values=values, errors=errors,
         platform_blacklist=_platform_blacklist(), role_options=ROLES,
         signin_recovery_url=url_for("auth.login_recovery", _external=True)
-        if section == "signin" and signin_modes.configured() else None,
+        if section == "security" and signin_modes.configured() else None,
     ), status
 
 

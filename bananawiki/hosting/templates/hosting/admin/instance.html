@@ -4,8 +4,12 @@
 {% block title %}{{ inst.original_slug }}{% endblock %}
 {% block column_class %}wide{% endblock %}
 {% block content %}
-<div class="page-header"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status) }}{% if inst.is_main %} <span class="badge badge--primary">{{ t('hosting.main.badge_platform') if owner and owner.is_admin else t('hosting.main.badge') }}</span>{% endif %}
-  <div class="page-header__actions">{% if inst.status != 'terminated' %}<a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=inst.id) }}">{{ t('hosting.admin.owner_view') }}</a>{% endif %}</div></div>
+{#- The wiki's settings (sign-in, storage, uploads) are one form with one Save, in the header. Every other button
+    is an action that names what it does. -#}
+{% set has_settings = inst.status not in ('terminated', 'provisioning', 'provisioning_failed') %}
+<header class="page-header{% if has_settings %} page-header--save{% endif %}"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status) }}{% if inst.is_main %} <span class="badge badge--primary">{{ t('hosting.main.badge_platform') if owner and owner.is_admin else t('hosting.main.badge') }}</span>{% endif %}
+  <div class="page-header__actions">{% if inst.status != 'terminated' %}<a class="btn btn--small" href="{{ url_for('dashboard.instance_detail', instance_id=inst.id) }}">{{ t('hosting.admin.owner_view') }}</a>{% endif %}
+  {% if has_settings %}<button class="btn btn--primary" type="submit" form="instance-settings-form">{{ t('common.save') }}</button>{% endif %}</div></header>
 <section class="card"><dl class="kv">
   <dt>ID</dt><dd class="mono">{{ inst.id }}</dd>
   {% if inst.url %}<dt>{{ t('hosting.instance.url') }}</dt><dd><a href="{{ inst.url }}" rel="noopener">{{ inst.url }}</a></dd>{% endif %}
@@ -26,7 +30,7 @@
   <form method="post" action="{{ url_for('admin.restore_instance', instance_id=inst.id) }}" class="cluster restore-form">{{ ui.csrf() }}
     <label class="small" for="f-restore-days">{{ t('hosting.admin.restore_days') }}</label>
     <input type="number" id="f-restore-days" name="extend_days" min="0" max="36500" class="hosting-num hosting-num--sm" aria-describedby="f-restore-days-hint">
-    <button class="btn btn--small btn--primary">{{ t('hosting.admin.restore') }}</button></form>
+    <button class="btn btn--small">{{ t('hosting.admin.restore') }}</button></form>
   {{ ui.post(url_for('admin.download_instance', instance_id=inst.id), t('hosting.instance.download')) }}
   {{ ui.post(url_for('admin.grace_unsuspend' if inst.grace_period_suspended else 'admin.grace_suspend', instance_id=inst.id), t('hosting.admin.grace_unsuspend') if inst.grace_period_suspended else t('hosting.admin.grace_suspend')) }}
   {% endif %}
@@ -42,22 +46,18 @@
 <section class="card"><h2>{{ t('hosting.admin.lifecycle') }}</h2>
 <div class="btn-row">
   {% if inst.status == 'running' %}{{ ui.post(url_for('admin.stop_instance', instance_id=inst.id), t('hosting.instance.stop')) }}{{ ui.post(url_for('admin.force_restart', instance_id=inst.id), t('hosting.instance.restart')) }}
-  {% elif inst.status == 'stopped' %}{{ ui.post(url_for('admin.restart_instance', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--small btn--primary') }}{% endif %}
-  {% if inst.status == 'suspended' %}{{ ui.post(url_for('admin.unsuspend_instance', instance_id=inst.id), t('hosting.admin.unsuspend'), 'btn btn--small btn--primary') }}{% endif %}
+  {% elif inst.status == 'stopped' %}{{ ui.post(url_for('admin.restart_instance', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--small') }}{% endif %}
+  {% if inst.status == 'suspended' %}{{ ui.post(url_for('admin.unsuspend_instance', instance_id=inst.id), t('hosting.admin.unsuspend'), 'btn btn--small') }}{% endif %}
   {{ ui.post(url_for('admin.reset_instance_password', instance_id=inst.id), t('hosting.instance.reset_password'), confirm=t('hosting.instance.reset_password_confirm')) }}
   {{ ui.post(url_for('admin.rotate_oauth', instance_id=inst.id), t('hosting.admin.rotate_oauth'), confirm=t('hosting.common.are_you_sure')) }}
   {% if inst.status != 'suspended' %}{{ ui.post(url_for('admin.toggle_easy_wiki', instance_id=inst.id), t('hosting.instance.to_full') if inst.easy_wiki else t('hosting.instance.to_easy'), hidden={'enable': '0' if inst.easy_wiki else '1'}) }}{% endif %}
 </div>
 <p class="small muted">{{ t('hosting.instance.mode') }}: {{ t('hosting.instance.easy_wiki') if inst.easy_wiki else t('hosting.instance.full_wiki') }} · {{ t('hosting.instance.mode_hint') }}</p>
-<form method="post" action="{{ url_for('admin.signin_mode_override', instance_id=inst.id) }}" class="cluster">{{ ui.csrf() }}
-  <label class="small" for="f-signin-mode">{{ t('hosting.admin.signin_mode') }}</label>
-  <select id="f-signin-mode" name="mode" aria-describedby="f-signin-mode-hint">{% for mode in ('', 'local', 'both', 'platform') %}<option value="{{ mode }}"{% if (inst.platform_signin_mode or '') == mode %} selected{% endif %}>{{ t('hosting.admin.signin_mode.' ~ (mode or 'wiki')) }}</option>{% endfor %}</select>
-  <button class="btn btn--small">{{ t('hosting.apps.save') }}</button></form>
-<p class="small muted" id="f-signin-mode-hint">{{ t('hosting.admin.signin_mode_hint') }}</p>
 <div class="btn-row">
   <a class="btn btn--small" href="{{ url_for('admin.instance_logs', instance_id=inst.id) }}">{{ t('hosting.admin.logs') }}</a>
   {{ ui.post(url_for('admin.download_instance', instance_id=inst.id), t('hosting.instance.download')) }}
   <a class="btn btn--small" href="{{ url_for('dashboard.instance_domain', instance_id=inst.id) }}">{{ t('hosting.domains.title') }}</a>
+  <a class="btn btn--small" href="{{ url_for('admin.account_links', instance_id=inst.id) }}">{{ t('hosting.links.title') }}</a>
 </div>
 {% if inst.is_main %}<p class="small muted">{{ t('hosting.main.protected_note') }}</p>{% else %}
 <div class="btn-row btn-row--danger">
@@ -73,7 +73,7 @@
   <p>{{ t('hosting.main.is_main_platform') if owner and owner.is_admin else t('hosting.main.is_main_owner', owner=owner.username if owner else '') }}{% if inst.main_since %} <span class="small muted">({{ t('hosting.main.since', when=inst.main_since|datetime) }})</span>{% endif %}</p>
   {{ ui.post(url_for('admin.set_main', instance_id=inst.id), t('hosting.main.unset'), confirm=t('hosting.main.unset_confirm'), hidden={'main': '0'}) }}
   {% else %}
-  {{ ui.post(url_for('admin.set_main', instance_id=inst.id), t('hosting.main.set'), 'btn btn--small btn--primary', confirm=t('hosting.main.set_confirm'), hidden={'main': '1'}) }}
+  {{ ui.post(url_for('admin.set_main', instance_id=inst.id), t('hosting.main.set'), 'btn btn--small', confirm=t('hosting.main.set_confirm'), hidden={'main': '1'}) }}
   {% endif %}
 </section>
 
@@ -82,20 +82,36 @@
   {% if inst.is_main %}<p class="small muted">{{ t('hosting.main.no_expiry') }}</p>{% else %}
   <form method="post" action="{{ url_for('admin.extend', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.duration_fields('extra', legend=t('hosting.admin.extend_by')) }}<p><button class="btn">{{ t('hosting.admin.extend') }}</button></p></form>
   <form method="post" action="{{ url_for('admin.shorten', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.duration_fields('shorten', legend=t('hosting.admin.shorten_by')) }}<p><button class="btn">{{ t('hosting.admin.shorten') }}</button></p></form>
-  <form method="post" action="{{ url_for('admin.set_expiry', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.field('expiry_datetime', t('hosting.admin.set_expiry_utc'), type='datetime-local') }}<p><button class="btn">{{ t('common.save') }}</button></p></form>
+  <form method="post" action="{{ url_for('admin.set_expiry', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}{{ ui.field('expiry_datetime', t('hosting.admin.set_expiry_utc'), type='datetime-local') }}<p><button class="btn">{{ t('hosting.admin.set_expiry_button') }}</button></p></form>
   {{ ui.post(url_for('admin.make_indefinite', instance_id=inst.id), t('hosting.admin.make_indefinite')) }}
   {% endif %}
 </details>
 {% if inst.status != 'suspended' %}<details class="card" id="panel-2" data-remember><summary>{{ t('hosting.admin.suspend_instance') }}</summary>{{ ui.suspension_form(url_for('admin.suspend_instance', instance_id=inst.id)) }}</details>{% endif %}
-<details class="card" id="panel-3" data-remember><summary>{{ t('hosting.admin.limits') }}</summary>
-  <form method="post" action="{{ url_for('admin.storage_limit', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
-    {{ ui.field('storage_limit_mb', t('hosting.admin.storage_limit_mb'), inst.storage_limit_mb or '', type='number', attrs={'min': 1}) }}{{ ui.check('unlimited', t('hosting.admin.no_storage_limit')) }}
-    <p><button class="btn">{{ t('common.save') }}</button></p></form>
-  <form method="post" action="{{ url_for('admin.upload_policy', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
-    {{ ui.field('upload_max_size_mb', t('hosting.admin.upload_max_mb'), inst.upload_max_size_mb or '', type='number', attrs={'min': 1, 'max': 2048}) }}
-    {{ ui.check('inherit_upload_size', t('hosting.admin.inherit'), checked=upload_policy.inherits_size) }}
-    {{ ui.field('upload_blocked_extensions', t('hosting.admin.blocked_extensions'), inst.upload_blocked_extensions or '') }}
-    <p><button class="btn">{{ t('common.save') }}</button></p></form></details>
+{#- After a refused Save the section is open and shows what was typed (typed), not what is stored. -#}
+{% set typed = settings_form or {} %}
+<details class="card" id="panel-3" data-remember{% if settings_form %} open{% endif %}><summary>{{ t('hosting.admin.instance_settings') }}</summary>
+  <form method="post" action="{{ url_for('admin.instance_settings', instance_id=inst.id) }}" class="form" id="instance-settings-form">{{ ui.csrf() }}
+    {% set mode_shown = typed.mode if settings_form else inst.platform_signin_mode or '' %}
+    <div class="field"><label for="f-signin-mode">{{ t('hosting.admin.signin_mode') }}</label>
+      <select id="f-signin-mode" name="mode" aria-describedby="f-signin-mode-hint">{% for mode in ('', 'local', 'both', 'platform') %}<option value="{{ mode }}"{% if mode_shown == mode %} selected{% endif %}>{{ t('hosting.admin.signin_mode.' ~ (mode or 'wiki')) }}</option>{% endfor %}</select>
+      <p class="hint" id="f-signin-mode-hint">{{ t('hosting.admin.signin_mode_hint') }}</p></div>
+    {#- Each limit is one choice: the platform's default, none (storage only) or a number of megabytes. -#}
+    {% set storage_shown = typed.storage_limit if settings_form else ('platform' if inst.storage_limit_mb is none else 'none' if inst.storage_limit_mb == 0 else 'custom') %}
+    <fieldset class="field"><legend>{{ t('hosting.admin.storage_limit') }}</legend>
+      <select id="f-storage-limit" name="storage_limit" aria-label="{{ t('hosting.admin.storage_limit') }}">
+        {% for choice in ('platform', 'none', 'custom') %}<option value="{{ choice }}"{% if storage_shown == choice %} selected{% endif %}>{{ t('hosting.admin.limit.platform_none') if choice == 'platform' and not platform_storage_mb else t('hosting.admin.limit.' ~ choice, mb=platform_storage_mb) }}</option>{% endfor %}
+      </select>
+      <div data-shown-when="storage_limit=custom">{{ ui.field('storage_limit_mb', t('hosting.admin.storage_limit_mb'), typed.storage_limit_mb if settings_form else (inst.storage_limit_mb or ''), type='number', attrs={'min': 1}) }}</div>
+    </fieldset>
+    {% set upload_shown = typed.upload_size if settings_form else ('platform' if upload_policy.inherits_size else 'custom') %}
+    <fieldset class="field"><legend>{{ t('hosting.admin.upload_max_mb') }}</legend>
+      <select id="f-upload-size" name="upload_size" aria-label="{{ t('hosting.admin.upload_max_mb') }}">
+        {% for choice in ('platform', 'custom') %}<option value="{{ choice }}"{% if upload_shown == choice %} selected{% endif %}>{{ t('hosting.admin.limit.' ~ choice, mb=platform_upload_mb) }}</option>{% endfor %}
+      </select>
+      <div data-shown-when="upload_size=custom">{{ ui.field('upload_max_size_mb', t('hosting.admin.upload_custom_mb'), typed.upload_max_size_mb if settings_form else (inst.upload_max_size_mb or ''), type='number', attrs={'min': 1, 'max': 2048}) }}</div>
+    </fieldset>
+    {{ ui.field('upload_blocked_extensions', t('hosting.admin.blocked_extensions'), typed.upload_blocked_extensions if settings_form else inst.upload_blocked_extensions or '') }}
+  </form></details>
 <details class="card" id="panel-4" data-remember><summary>{{ t('hosting.admin.name_owner') }}</summary>
   <form method="post" action="{{ url_for('admin.rename_instance', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
     {{ ui.field('subdomain', t('hosting.create.subdomain'), inst.subdomain, required=true) }}

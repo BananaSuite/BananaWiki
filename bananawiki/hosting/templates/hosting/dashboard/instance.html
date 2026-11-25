@@ -6,9 +6,12 @@
 {% block title %}{{ inst.original_slug }}{% endblock %}
 {% block content %}
 <nav class="breadcrumbs" aria-label="{{ t('hosting.breadcrumbs') }}">{% if active_page == 'admin' %}<a href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ t('hosting.instance.admin_tools') }}</a>{% else %}<a href="{{ url_for('dashboard.dashboard') }}">{{ t('hosting.dashboard.title') }}</a>{% endif %}</nav>
-<div class="page-header"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status, expired=inst.expired) }}
-  <div class="page-header__actions btn-row">{% if inst.url and inst.status == 'running' and not inst.expired %}<a class="btn btn--primary" href="{{ wiki_open_url(inst) }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% elif inst.status == 'stopped' and 'start_stop' in permissions and not inst.expired %}{{ ui.post(url_for('dashboard.restart', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--primary') }}{% endif %}
-  {% if current_account.is_admin and active_page == 'dashboard' %}<a class="btn" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ t('hosting.instance.admin_tools') }}</a>{% endif %}</div></div>
+{#- The intended use is the page's one setting: its Save is in the header, after the wiki's own buttons. -#}
+{% set edits_use_case = 'use_case' in permissions and inst.status != 'terminated' %}
+<header class="page-header{% if edits_use_case %} page-header--save{% endif %}"><h1>{{ inst.original_slug }}</h1>{{ ui.status(inst.status, expired=inst.expired) }}
+  <div class="page-header__actions btn-row">{% if inst.url and inst.status == 'running' and not inst.expired %}<a class="btn{% if not edits_use_case %} btn--primary{% endif %}" href="{{ wiki_open_url(inst) }}" rel="noopener">{{ t('hosting.instance.open_wiki') }}</a>{% elif inst.status == 'stopped' and 'start_stop' in permissions and not inst.expired %}{{ ui.post(url_for('dashboard.restart', instance_id=inst.id), t('hosting.instance.start'), 'btn btn--primary') }}{% endif %}
+  {% if current_account.is_admin and active_page == 'dashboard' %}<a class="btn" href="{{ url_for('admin.instance', instance_id=inst.id) }}">{{ t('hosting.instance.admin_tools') }}</a>{% endif %}
+  {% if edits_use_case %}<button class="btn btn--primary" type="submit" form="use-case-form">{{ t('common.save') }}</button>{% endif %}</div></header>
 
 {% if transfer and is_owner %}
 <p class="small muted">{{ tm('hosting.transfers.pending_note', username=transfer.to_username, link=link(url_for('dashboard.collaborators_page', instance_id=inst.id), t('hosting.collaborators.title'))) }}</p>
@@ -87,7 +90,7 @@
 {% endif %}
 {% elif inst.grace_active and (current_account.is_admin or owner_can_download) and not inst.grace_period_suspended %}
 <section class="card"><h2>{{ t('hosting.instance.download_title') }}</h2><p>{{ t('hosting.instance.download_body', date=inst.data_retained_until|datetime) }}</p>
-  {{ ui.post(url_for('dashboard.download', instance_id=inst.id), t('hosting.instance.download'), 'btn btn--primary') }}</section>
+  {{ ui.post(url_for('dashboard.download', instance_id=inst.id), t('hosting.instance.download'), 'btn') }}</section>
 {% endif %}
 {% if inst.holds_place and is_owner %}
 <section class="card"><h2>{{ t('hosting.instance.delete_data_title') }}</h2><p>{{ t('hosting.instance.delete_data_body', date=inst.data_retained_until|datetime) }}</p>
@@ -106,8 +109,8 @@
   <details class="feature-request"><summary class="btn btn--small">{{ t('hosting.features.request') }}</summary>
   <form method="post" action="{{ url_for('dashboard.request_feature', instance_id=inst.id, feature=feature) }}" class="form">{{ ui.csrf() }}
     {{ ui.textarea('reason', t('hosting.features.reason'), required=true,
-        attrs={'minlength': 20, 'maxlength': 2000, 'rows': 3}, id='fr-' ~ feature) }}
-    <p><button class="btn btn--small btn--primary" type="submit">{{ t('hosting.features.send') }}</button></p></form></details>
+        attrs={'minlength': 20, 'data-min-trimmed': 20, 'data-min-message': t('hosting.form.min_chars', count=20), 'maxlength': 2000, 'rows': 3}, id='fr-' ~ feature) }}
+    <p><button class="btn btn--small" type="submit">{{ t('hosting.features.send') }}</button></p></form></details>
   {% endif %}
   </div></div>
 {% endfor %}
@@ -129,16 +132,16 @@
 </section>
 {% endif %}
 
-{% if 'use_case' in permissions and inst.status != 'terminated' %}
+{% if edits_use_case %}
 <details class="card" id="panel-1" data-remember><summary>{{ t('hosting.instance.use_case') }}</summary>
-<form method="post" action="{{ url_for('dashboard.update_use_case', instance_id=inst.id) }}" class="form">{{ ui.csrf() }}
+<form method="post" action="{{ url_for('dashboard.update_use_case', instance_id=inst.id) }}" class="form" id="use-case-form">{{ ui.csrf() }}
   {{ ui.textarea('declared_use_case', t('hosting.instance.use_case_label'), inst.declared_use_case,
-      attrs={'minlength': 20, 'maxlength': 2000, 'rows': 4}) }}
+      attrs={'minlength': 20, 'data-min-trimmed': 20, 'data-min-message': t('hosting.form.min_chars', count=20), 'maxlength': 2000, 'rows': 4}) }}
   {#- The owner declares how the wiki is used; an administrator correcting the text declares nothing. -#}
   {% if is_owner or not current_account.is_admin %}
   <label class="check"><input type="checkbox" name="compliance_declared" value="1" required><span>{{ tm('hosting.create.compliance_sentence', terms=link(url_for('public.terms'), t('hosting.signup.terms'))) }}</span></label>
   {% endif %}
-  <p><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></p></form></details>
+</form></details>
 {% endif %}
 
 {% if manager and users %}

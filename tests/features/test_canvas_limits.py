@@ -229,7 +229,6 @@ def test_the_largest_canvas_exports_and_imports_again(app, editor, canvas, db, o
                                            user_id=owner["id"], session_id=""))
     export = editor.get(f"/canvas/{canvas['slug']}/export?format=json").data
     assert model.MAX_DOCUMENT_BYTES < len(export) <= transfer.MAX_JSON_BYTES and b"\n  " in export
-    db.execute("UPDATE site_settings SET canvas_write_access = 'editor', canvas_access = 'editor'")
     response = editor.post("/canvas/import", data={"import_file": (io.BytesIO(export), "b.canvas.json")},
                            content_type="multipart/form-data")
     assert response.status_code == 302

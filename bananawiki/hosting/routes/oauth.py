@@ -11,6 +11,21 @@ session): ``/oauth/token``, ``/oauth/userinfo`` (alias ``/oauth/me``),
 ``/oauth/verify``, ``/oauth/link``, ``/oauth/unlink``, ``/oauth/link-status``
 and ``/oauth/signouts``.
 
+``prompt=create`` (OpenID "Initiating User Registration") without a portal session shows the portal's
+sign-up form (every rule of ``/signup``; the sign-in form with a note while sign-up is closed), naming the
+wiki or app, and then continues the request; with a session it changes nothing. A new account that must
+confirm its address or wait for approval first gets those pages, with a link back to the wiki or app.
+The metadata lists ``create`` while sign-up is not closed and says ``signup`` (``open``, ``invite`` or
+``closed``).
+
+``prompt=login`` (alone or with ``consent``) and ``max_age=N`` (0..86400 seconds since the portal sign-in)
+ask for a fresh sign-in: the portal's sign-in page (password, then the two-step code when the account uses
+one) even while a portal session exists; the request then continues without them. The code's token
+response and userinfo carry ``auth_time`` and ``amr`` of that sign-in. An administrator acting as an
+account (:mod:`..acting`, ``admin_app_signin`` on) signs in as it, after a click, without the consent page
+(nothing is remembered for the account) and never with a fresh sign-in (``error=login_required``); the
+code carries ``act`` and ``act_expires_at``, and each such sign-in is in the moderation log.
+
 Every sign-in needs a click on the portal, like other "Sign in with" pages:
 the first time (on the owner's own wikis too) the consent page says what the
 wiki or app gets; once allowed, a short page asks to continue as the signed-in
@@ -45,14 +60,14 @@ import base64
 import functools
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode
 
-from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, g, jsonify, redirect, render_template, request, url_for
 
 from ...core.numbers import ascii_int
 from ...core.timeutil import sql_in
 from ...core.web import allow_form_action, csrf_exempt, safe_next
-from .. import accounts, auth, events, limits, oauth, oauth_apps, signouts, urls
+from .. import accounts, acting, auth, events, limits, oauth, oauth_apps, signouts, urls
 from ..db import db
 from ..limits import rate_limit
 
@@ -134,7 +149,9 @@ def _json_error(code: int, error: str):
 @auth.exempt(*auth.GATES)
 @_enabled
 def metadata():
-    """Where apps find the endpoints (RFC 8414)."""
+    """Where apps find the endpoints (RFC 8414), and whether sign-up is ``open``, ``invite`` or ``closed``
+    (``signup``; ``prompt=create`` is listed while it is not closed)."""
+    signup = oauth.signup_state()
     base = urls.portal_base_url().rstrip("/")
     response = jsonify({
         "issuer": base, "authorization_endpoint": f"{base}/oauth/authorize", "token_endpoint": f"{base}/oauth/token",
@@ -142,9 +159,49 @@ def metadata():
         "response_types_supported": ["code"], "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256"],
         "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
+        "prompt_values_supported": ["login", "consent", *(["create"] if signup != "closed" else [])],
+        "claims_supported": ["sub", "username", "preferred_username", "name", "email", "email_verified",
+                             "created_at", "auth_time", "amr", "act", "act_expires_at"],
+        "signup": signup,
     })
-    response.headers["Cache-Control"] = "public, max-age=3600"
+    # Short: clients hide their "Create an account" link from what this says about sign-up.
+    response.headers["Cache-Control"] = "public, max-age=300"
     return response
+
+
+def _without_fresh_sign_in(path: str) -> str:
+    """The authorize URL *path* without ``prompt=login``, ``prompt=create`` and ``max_age``: where the fresh
+    sign-in or the sign-up returns to (``prompt=consent`` stays)."""
+    base, _, query = path.partition("?")
+    kept = []
+    for key, value in parse_qsl(query, keep_blank_values=True):
+        if key == "max_age":
+            continue
+        if key == "prompt":
+            value = " ".join(part for part in value.split() if part not in ("login", "create"))
+            if not value:
+                continue
+        kept.append((key, value))
+    return f"{base}?{urlencode(kept)}" if kept else base
+
+
+def _max_age() -> int | None:
+    """``max_age`` (0..86400), None when absent; 400 when it is something else."""
+    raw = request.args.get("max_age")
+    if raw is None:
+        return None
+    value = ascii_int(raw.strip(), 5) if raw.strip() else None
+    if value is None or not 0 <= value <= oauth.MAX_AGE_LIMIT:
+        abort(400)
+    return value
+
+
+def _sign_in_age() -> float | None:
+    """Seconds since the interactive portal sign-in of this session (None when unknown)."""
+    from ...core.timeutil import parse, utcnow
+
+    started = parse((g.get("auth_session") or {}).get("created_at"))
+    return (utcnow() - started).total_seconds() if started is not None else None
 
 
 @bp.route("/oauth/authorize", methods=["GET", "POST"])
@@ -169,10 +226,18 @@ def authorize():
         abort(400)
     if challenge and (method != "S256" or not oauth.valid_pkce_challenge(challenge)):
         abort(400)
+    prompts = set((args.get("prompt") or "").split())
+    max_age = _max_age()
     current = auth.current_account()
     if current is None:
-        return redirect(url_for("auth.login", next=request.full_path))
-    if auth.pending_gate(current, None) or not oauth.account_may_sign_in(current) or auth.impersonating():
+        # The sign-in (or sign-up, for prompt=create) about to happen is fresh: the request continues
+        # without asking for another one. With a portal session, prompt=create changes nothing.
+        endpoint = "auth.signup" if "create" in prompts else "auth.login"
+        return redirect(url_for(endpoint, next=_without_fresh_sign_in(request.full_path)))
+    acting_row = auth.acting_log()
+    if auth.impersonating() and (acting_row is None or not acting.app_signin_enabled()):
+        abort(403)
+    if auth.pending_gate(current, None) or not oauth.account_may_sign_in(current):
         abort(403)
     if app is not None and not oauth_apps.usable_by(app, current):
         return render_template("hosting/oauth_unavailable.html", app=app), 403
@@ -182,34 +247,51 @@ def authorize():
         query = {**query, **({"state": state} if state else {})}
         return redirect(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(query)}")
 
+    age = _sign_in_age()
+    if "login" in prompts or (max_age is not None and (age is None or age > max_age)):
+        if acting_row is not None:
+            # The administrator cannot sign in again as the account: a client asking for that is told so.
+            return answer({"error": "login_required"})
+        return redirect(url_for("auth.login", again=1, next=_without_fresh_sign_in(request.full_path)))
+
     def issue():
-        if app is not None:
+        if acting_row is not None:
+            # The administrator is not the one consenting: nothing is remembered for the account.
+            events.record("account", current["id"], "account.acting_signin", acting_row["admin_account_id"],
+                          f"{app['name'] if app is not None else inst['subdomain']}: {acting_row['reason']}"[:2000])  # type: ignore[index]
+        elif app is not None:
             oauth_apps.remember_consent(current["id"], app["id"], scope)
         else:
             oauth.remember_consent(current["id"], inst["id"])  # type: ignore[index]
+        auth_time, amr = oauth.sign_in_facts(g.get("auth_session"))
         return answer({"code": oauth.issue_code(client_id, current["id"], redirect_uri, challenge,
-                                                "S256" if challenge else "", scope)})
+                                                "S256" if challenge else "", scope, auth_time=auth_time, amr=amr,
+                                                act=acting_row)})
 
     if request.method == "POST":
         action = request.form.get("action")
         if action == "switch":
+            if acting_row is not None:
+                abort(403)  # the acting administrator stops acting on the portal instead
             # "Use another account": the login page brings the next account back to this request.
             auth.end_session()
             return redirect(url_for("auth.login", next=request.full_path))
         if action != "allow":
             return answer({"error": "access_denied"})
         return issue()
-    remembered = args.get("prompt") != "consent" and (
+    # While acting the consent page is skipped (the short "Continue" page still needs the click).
+    remembered = acting_row is not None or ("consent" not in prompts and (
         oauth_apps.consent_covers(current["id"], app["id"], scope) if app is not None
-        else oauth.consent_remembered(current, inst))  # type: ignore[arg-type]
+        else oauth.consent_remembered(current, inst)))  # type: ignore[arg-type]
     # The page is answered with a redirect to the wiki or app checked above.
     allow_form_action(redirect_uri)
     if app is not None:
         owner = accounts.get(app["account_id"])
         return render_template("hosting/oauth_consent.html", instance=None, app=app, scopes=scope.split(),
-                               owner_name=owner["username"] if owner else "", remembered=remembered,
+                               owner_name=owner["username"] if owner else "", remembered=remembered, acting=acting_row,
                                email_shared=bool("email" in scope.split() and oauth_apps.verified_email(current)))
-    return render_template("hosting/oauth_consent.html", instance=inst, app=None, remembered=remembered)
+    return render_template("hosting/oauth_consent.html", instance=inst, app=None, remembered=remembered,
+                           acting=acting_row)
 
 
 @bp.post("/oauth/token")
@@ -242,11 +324,21 @@ def token():
         if not limits.failure(limits.BAD_GRANT, limits.BAD_GRANT_PER_MINUTE, key=inst["id"]):
             return jsonify({"error": error}), 429
         return jsonify({"error": error}), 400
-    issued = oauth.token_row(raw)
-    response = jsonify({"access_token": raw, "token_type": "Bearer", "expires_in": oauth.TOKEN_SECONDS,
-                        "scope": (issued or {}).get("scope") or oauth.SCOPE})
+    issued = oauth.token_row(raw) or {}
+    response = jsonify({"access_token": raw, "token_type": "Bearer", "expires_in": _expires_in(issued),
+                        "scope": issued.get("scope") or oauth.SCOPE, **oauth.sign_in_claims(issued)})
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+def _expires_in(row: dict[str, Any]) -> int:
+    """Seconds the token lives (less than an hour when it was issued while acting, which ends sooner)."""
+    from ...core.timeutil import parse, utcnow
+
+    expires = parse(row.get("expires_at")) if row.get("act_expires_at") else None
+    if expires is None:
+        return oauth.TOKEN_SECONDS
+    return max(0, min(oauth.TOKEN_SECONDS, int((expires - utcnow()).total_seconds())))
 
 
 def _bearer() -> tuple[dict[str, Any] | None, Any]:
@@ -270,6 +362,8 @@ def _token_account(row: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str
         return None, None, (jsonify({"error": "account_not_found"}), 404)
     if not oauth.account_may_sign_in(account):
         return None, None, (jsonify({"error": oauth.refusal(account)}), 403)
+    if not acting.sign_in_valid(row):
+        return None, None, (jsonify({"error": "invalid_token"}), 401)  # the acting it was issued in ended
     app = oauth_apps.for_client(row["client_id"])
     if app is not None and not oauth_apps.token_usable(app, account):
         return None, None, (jsonify({"error": "invalid_token"}), 401)  # suspended since, or its owner was
@@ -290,17 +384,19 @@ def userinfo():
     if account is None:
         return refusal
     if app is None:
-        return jsonify({"sub": account["id"], "username": account["username"],
-                        "preferred_username": account["username"],
-                        "is_admin": bool(account["is_admin"]) and not auth.admin_mfa_missing(account),
-                        "created_at": account["created_at"]})
+        response = jsonify({"sub": account["id"], "username": account["username"],
+                            "preferred_username": account["username"],
+                            "is_admin": bool(account["is_admin"]) and not auth.admin_mfa_missing(account),
+                            "created_at": account["created_at"], **oauth.sign_in_claims(row)})
+        response.headers["Cache-Control"] = "no-store"
+        return response
     # Apps are never told who administers the platform, and get an address only when they asked for it.
     info = {"sub": account["id"], "username": account["username"], "preferred_username": account["username"],
             "name": account["username"], "created_at": account["created_at"]}
     email = oauth_apps.verified_email(account) if "email" in (row["scope"] or "").split() else ""
     if email:
         info.update(email=email, email_verified=True)
-    response = jsonify(info)
+    response = jsonify({**info, **oauth.sign_in_claims(row)})
     response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -360,6 +456,8 @@ def link():
     wiki_user_id = str(data.get("wiki_user_id") or "").strip()[:128]
     wiki_username = str(data.get("wiki_username") or "").strip()[:200]
     access = oauth.token_row(str(data.get("access_token") or "").strip()) if data.get("access_token") else None
+    if access and access.get("act_account_id"):
+        return _json_error(403, "acting_administrator")  # links are the person's own, never made while acting
     account_id = access["account_id"] if access and access["client_id"] == inst["oauth_client_id"] else \
         str(data.get("account_id") or "").strip()
     if not account_id or not wiki_user_id:

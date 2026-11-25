@@ -14,7 +14,7 @@ from ..core import eggs, mascot, web
 from ..core.assets import asset_url
 from ..core.i18n import _PLACEHOLDER
 from ..core.timeutil import is_past, parse, utcnow
-from . import attention, auth, i18n, notifications, settings, urls
+from . import attention, auth, i18n, notifications, oauth, settings, urls
 
 
 def format_datetime(value: Any, fmt: str = "%Y-%m-%d %H:%M UTC") -> str:
@@ -431,7 +431,7 @@ def install(app: Flask) -> None:
             "t": i18n.t, "tn": i18n.tn, "lang": i18n.current_language(), "languages": i18n.LANGUAGES,
             "csrf_token": web.csrf_token, "csp_nonce": web.csp_nonce, "asset_url": asset_url,
             "current_account": auth.current_account(), "real_account": auth.real_account(),
-            "impersonating": auth.impersonating(), "theme": theme, "banners": banners,
+            "impersonating": auth.impersonating(), "acting_log": auth.acting_log(), "theme": theme, "banners": banners,
             "js_strings": i18n.js_strings, "contact_email": cfg.contact_email, "source_url": cfg.source_url,
             "service_name": cfg.service_name,
             "app_version": __version__, "hosting_mode": cfg.hosting_mode, "instance_url": urls.instance_url,
@@ -442,4 +442,5 @@ def install(app: Flask) -> None:
             "email_ready": notifications.configured, "mascot": mascot,
             "email_paused": settings.email_paused, "easter_eggs": easter_eggs,
             "easter_egg_config": easter_egg_config, "goto_menu": goto_menu,
+            "signup_return": oauth.signup_return,
         }

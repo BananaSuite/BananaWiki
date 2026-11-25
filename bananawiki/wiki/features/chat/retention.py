@@ -1,9 +1,10 @@
 """Retention cleanup and housekeeping jobs.
 
-``chat.retention`` runs hourly and applies the administrator's retention
-policy when the schedule says it is due (every ``chat_cleanup_frequency_days``
-days at ``chat_cleanup_hour`` in the site time zone). Direct messages and
-group chats have separate policies for messages and for attachments.
+``chat.retention`` runs hourly and, once a day from 03:00 site time, deletes
+the messages and the files older than the administrator's retention: four
+numbers of days (messages and files, of direct messages and of groups); 0
+keeps them. Version 24 folded the switches, the schedule and the 1.4 single
+policy into those four numbers.
 
 ``chat.housekeeping`` runs daily. It erases what 1.4 kept of deleted
 messages, and removes attachment files (and their legacy blob copies) that no
@@ -30,11 +31,9 @@ from .store import DM, GROUP
 log = logging.getLogger("bananawiki.chat")
 
 SCOPES = ("dm", "group")
-FIELDS = ("auto_clear_messages", "auto_clear_attachments", "message_retention_days", "attachment_retention_days")
-# Values 1.4 migrations wrote into the split columns; rows still holding them
-# were never saved from the admin page, so the legacy single policy applies.
-_SPLIT_DEFAULTS = {"auto_clear_messages": 0, "auto_clear_attachments": 1, "message_retention_days": 0,
-                   "attachment_retention_days": 7}
+RETENTION_COLUMNS = tuple(f"chat_{scope}_{kind}_retention_days" for scope in SCOPES
+                          for kind in ("message", "attachment"))
+CLEANUP_HOUR = 3  # site time
 ORPHAN_MIN_AGE_SECONDS = 86400
 
 
@@ -45,60 +44,31 @@ def _int(value: Any, default: int = 0) -> int:
         return default
 
 
-def policy() -> dict[str, dict[str, int]]:
-    """Effective DM and group retention settings, honouring the 1.4 single policy."""
-    row = settings.load()
-    split = bool(row.get("chat_cleanup_split_configured"))
-    result: dict[str, dict[str, int]] = {}
-    for scope in SCOPES:
-        resolved = {}
-        for field in FIELDS:
-            specific = row.get(f"chat_{scope}_{field}")
-            legacy = row.get(f"chat_{field}")
-            if split or (specific is not None and specific != _SPLIT_DEFAULTS[field]):
-                resolved[field] = _int(specific, _SPLIT_DEFAULTS[field])
-            elif legacy is not None:
-                resolved[field] = _int(legacy)
-            else:
-                resolved[field] = _SPLIT_DEFAULTS[field]
-        result[scope] = resolved
-    return result
-
-
-def policy_columns() -> dict[str, int]:
-    """The effective policy keyed by the per-scope setting columns (for the settings form)."""
-    return {f"chat_{scope}_{field}": value for scope, rules in policy().items() for field, value in rules.items()}
-
-
 def active_rules(scope: str) -> dict[str, int]:
-    """Retention periods in days that apply to *scope* now (empty when cleanup is off)."""
-    if not settings.get("chat_cleanup_enabled"):
-        return {}
-    rules = policy()[scope]
+    """Retention periods in days that apply to *scope* (empty: everything is kept)."""
+    row = settings.load()
     active = {}
-    if rules["auto_clear_messages"] and rules["message_retention_days"] > 0:
-        active["messages"] = rules["message_retention_days"]
-    if rules["auto_clear_attachments"] and rules["attachment_retention_days"] > 0:
-        active["attachments"] = rules["attachment_retention_days"]
+    for kind, name in (("message", "messages"), ("attachment", "attachments")):
+        days = _int(row.get(f"chat_{scope}_{kind}_retention_days"))
+        if days > 0:
+            active[name] = days
     return active
 
 
 def next_run(now: datetime | None = None) -> datetime | None:
-    """When the next cleanup is due (UTC), or None while cleanup is off."""
-    if not settings.get("chat_cleanup_enabled"):
+    """When the next cleanup is due (UTC), or None while nothing is ever deleted."""
+    if not any(active_rules(scope) for scope in SCOPES):
         return None
     now = now or utcnow()
     zone = site_timezone()
-    hour = min(23, max(0, _int(settings.get("chat_cleanup_hour"), 3)))
-    every = max(1, _int(settings.get("chat_cleanup_frequency_days"), 7))
     last = parse(settings.get("last_chat_cleanup_at"))
     local_now = now.astimezone(zone)
     if last is None:
-        target = local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
+        target = local_now.replace(hour=CLEANUP_HOUR, minute=0, second=0, microsecond=0)
         if target > local_now:
             return target.astimezone(now.tzinfo)
         return now
-    target = (last.astimezone(zone) + timedelta(days=every)).replace(hour=hour, minute=0, second=0, microsecond=0)
+    target = (last.astimezone(zone) + timedelta(days=1)).replace(hour=CLEANUP_HOUR, minute=0, second=0, microsecond=0)
     return target.astimezone(now.tzinfo)
 
 

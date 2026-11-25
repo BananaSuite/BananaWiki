@@ -55,21 +55,22 @@
 
 {% block content %}
 {{ quiz.breadcrumbs(page) }}
-<div class="page-header">
+<header class="page-header page-header--save">
   <h1>{{ t('assessments.manage_title', title=page.title) }}</h1>
-  {% if assessment %}
   <div class="page-header__actions">
+    {% if assessment %}
     <a class="btn btn--small" href="{{ url_for('assessments.take', slug=page.slug) }}">{{ t('assessments.open') }}</a>
     <a class="btn btn--small" href="{{ url_for('assessments.results', slug=page.slug) }}">{{ t('assessments.results') }}</a>
+    {% endif %}
+    <button type="submit" class="btn btn--primary" form="assessment-form">{{ t('common.save') }}</button>
   </div>
-  {% endif %}
-</div>
+</header>
 {% if error %}<div class="alert alert--error" role="alert"><div class="alert__body">{{ error }}</div></div>{% endif %}
 {% if attempt_count %}
 <div class="alert alert--warning"><div class="alert__body">{{ tn('assessments.edit_after_attempts', attempt_count, n=attempt_count) }}</div></div>
 {% endif %}
 
-<form method="post" action="{{ url_for('assessments.manage', slug=page.slug) }}" class="form section-stack assessment-editor" data-assessment-editor>
+<form method="post" action="{{ url_for('assessments.manage', slug=page.slug) }}" class="form section-stack assessment-editor" id="assessment-form" data-assessment-editor>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <section class="card stack">
     <div class="field">
@@ -102,16 +103,14 @@
     {% for q in rows %}{{ question_fields(loop.index0, q) }}{% endfor %}
   </div>
   <template data-question-template>{{ question_fields('__INDEX__', blank) }}</template>
-  <div class="btn-row form-actions--sticky">
+  <div class="btn-row">
     <button type="submit" name="add_question" value="1" class="btn" data-question-add formnovalidate>{{ t('assessments.add_question') }}</button>
-    <button type="submit" class="btn btn--primary">{{ t('common.save') }}</button>
   </div>
 </form>
 
 {% if assessment %}
 <section class="card card--danger stack">
   <h2>{{ t('assessments.delete') }}</h2>
-  <p class="hint">{{ t('assessments.delete_hint') }}</p>
   <form method="post" action="{{ url_for('assessments.delete', slug=page.slug) }}" data-confirm="{{ t('assessments.delete_confirm') }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn--danger">{{ t('assessments.delete') }}</button>

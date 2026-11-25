@@ -40,7 +40,7 @@ def languages_page():
 def set_default_language():
     code = request.form.get("interface_language", "")
     try:
-        languages.set_default(code, request.form.get("interface_language_fallback", "en"))
+        languages.set_default(code)
     except LanguageError as error:
         return _refuse(error)
     record("language.default_changed", target_type="language", target_id=code)

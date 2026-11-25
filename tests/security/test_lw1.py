@@ -89,19 +89,15 @@ def test_lw1_1_a_search_that_runs_too_long_is_stopped(app, admin, admin_client, 
 
 
 def _board(app, client, make_user, login, db, people=25):
-    """A board of an administrator, shared for writing with a plain user signed in on *client*, on a site where
-    every account may open boards; returns the board, its first column and the ids of *people* other accounts."""
-    from bananawiki.wiki import settings
-    from bananawiki.wiki.db import connection_scope
-
-    with app.test_request_context(), connection_scope():
-        settings.update({"kanban_access": "all"}, internal=True)
+    """A board of an administrator, visible to all members and shared for writing with a plain user signed in
+    on *client*; returns the board, its first column and the ids of *people* other accounts."""
     owner = app.test_client()
     login(owner, make_user("boss", role="admin"))
     mallory = make_user("mallory", role="user")
     others = [make_user(f"member{n:02d}")["id"] for n in range(people)]
     assert owner.post("/kanban/create", data={"title": "B"}).status_code == 302
     board_id = db.scalar("SELECT MAX(id) FROM kanban_boards")
+    db.execute("UPDATE kanban_boards SET visibility = 'members' WHERE id = ?", (board_id,))
     assert owner.post(f"/kanban/{board_id}/share", data={"action": "add_user", "user_id": mallory["id"],
                                                          "access_level": "write"}).status_code == 302
     login(client, mallory)

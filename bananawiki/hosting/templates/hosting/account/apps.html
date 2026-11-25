@@ -28,7 +28,7 @@
   <form method="post" action="{{ url_for('account.create_developer_app') }}" class="form">{{ ui.csrf() }}
     <input type="hidden" name="form_nonce" value="{{ form_nonce }}">
     {{ ui.field('name', t('hosting.apps.name'), value=form.name, required=true, attrs={'maxlength': 60, 'minlength': 2}) }}
-    {{ ui.textarea('description', t('hosting.apps.description'), value=form.description, hint=t('hosting.apps.description_hint'), attrs={'maxlength': 300, 'rows': 2}) }}
+    {{ ui.textarea('description', t('hosting.apps.description'), value=form.description, attrs={'maxlength': 300, 'rows': 2}) }}
     {{ ui.field('homepage_url', t('hosting.apps.homepage'), value=form.homepage_url, type='url', attrs={'maxlength': 512, 'placeholder': 'https://'}) }}
     {{ ui.textarea('redirect_uris', t('hosting.apps.redirect_uris'), value=form.redirect_uris, required=true, hint=t('hosting.apps.redirect_uris_hint'), attrs={'rows': 3, 'class': 'mono', 'spellcheck': 'false'}) }}
     <p><button class="btn btn--primary" type="submit">{{ t('hosting.apps.create') }}</button></p>

@@ -189,11 +189,17 @@ def test_the_editor_saves_a_clean_list(web, login, admin, query):
 def test_a_wrong_list_is_refused_naming_each_problem(web, login, admin, query):
     login(web, admin)
     wrong = {"version": 1, "eggs": [{**_egg("bad"), "keys": ["x"]}]}
-    response = _save_list(web, json.dumps(wrong))
-    assert "open=save_easter_eggs" in response.headers["Location"]
-    page = web.get(response.headers["Location"]).get_data(as_text=True)
+    response = _save_list(web, json.dumps(wrong), peek=False)
+    assert response.status_code == 400
+    page = response.get_data(as_text=True)
     assert "Easter egg 1 · Key sequence: needs 2 to 32 keys" in page
     assert query("SELECT easter_egg_configs FROM hosting_settings", one=True)["easter_egg_configs"] is None
+    # The page shows what was typed, to fix it, not the stored list.
+    import html
+
+    shown = re.search(r'id="easter-egg-list" name="easter_egg_configs" value="([^"]*)"', page).group(1)
+    assert json.loads(html.unescape(shown)) == wrong
+    assert 'id="save_easter_eggs" data-remember open' in page and 'name="easter_peek" value="1" checked' not in page
 
 
 def test_only_administrators_save_the_list(web, make_account, login, query):

@@ -132,8 +132,8 @@ def test_markdown_export_for_editors(app, client, make_user, login, db):
     assert text.startswith('---\ntitle: "Café: \\"quoted\\""\nslug: "café-quoted"\ncategory: "Guides"\n')
     assert text.endswith("Body **text**")
     response.close()
-    db.execute("UPDATE site_settings SET markdown_export_enabled = 0")
-    assert client.get("/page/café-quoted/export-md").status_code == 404
+    db.execute("UPDATE site_settings SET markdown_export_enabled = 0")  # retired in version 24: ignored
+    assert client.get("/page/café-quoted/export-md").status_code == 200
 
 
 def test_page_exports_are_kept_out_of_caches(app, admin_client):

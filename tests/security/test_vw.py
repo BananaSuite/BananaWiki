@@ -4,6 +4,7 @@ import json
 from bananawiki.wiki import permissions
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.pages import service as pages
+from tests.features.access_support import only_stored_permissions
 from tests.features.test_assessments import _create_quiz, _form, _questions, _submit_all
 
 
@@ -15,6 +16,7 @@ def test_vw1_1_deleting_a_category_does_not_move_pages_the_editor_may_not_move(a
                    (editor["id"], access))
     for key in set(permissions.defaults("editor")) - {"page.edit_metadata", "page.edit_all"}:
         db.execute("INSERT INTO user_permissions (user_id, permission_key) VALUES (?, ?)", (editor["id"], key))
+    only_stored_permissions(db, editor["id"])
     other = app.test_client()
     login(other, admin)
     other.post("/category/create", data={"name": "Minutes"})

@@ -3,7 +3,11 @@
 {% import "users/_macros.html" as m with context %}
 {% block title %}{{ t('users.settings.title') }}{% endblock %}
 {% block content %}
+{% if save_form %}
+<header class="page-header page-header--save"><h1>{{ t('users.settings.title') }}</h1>{{ forms.page_save(save_form) }}</header>
+{% else %}
 <header class="page-header"><h1>{{ t('users.settings.title') }}</h1></header>
+{% endif %}
 {% include "users/_tabs.html" %}
 {#- BM mode's short settings: this page is the only one, so it also has the password and the email address;
     what is marked with bm_short is hidden (users.simple_settings), "All settings" (?all=1) shows it. -#}
@@ -27,7 +31,7 @@
     <form method="post" action="{{ url_for('users.change_username') }}" class="form">
       {{ forms.csrf() }}
       {{ forms.field('new_username', t('users.settings.new_username'), user.username, required=true, hint=t('auth.hint.username') ~ ' ' ~ t('users.settings.username_mentions_hint'), attrs={'maxlength': 50, 'autocomplete': 'username', 'pattern': '[A-Za-z0-9_\\-]{3,50}'}) }}
-      {{ m.password('username-password', t('auth.field.current_password')) }}
+      {{ m.current_password('username-password') }}
       <div><button class="btn btn--primary" type="submit">{{ t('users.settings.change_username') }}</button></div>
     </form>
   </section>
@@ -58,7 +62,7 @@
     <form method="post" action="{{ url_for('users.toggle_owner') }}" class="form">
       {{ forms.csrf() }}
       <p class="hint">{{ t('users.settings.owner_on' if user.role == 'owner' else 'users.settings.owner_off') }}</p>
-      {{ m.password('owner-password', t('auth.field.current_password')) }}
+      {{ m.current_password('owner-password') }}
       <div><button class="btn" type="submit">{{ t('users.settings.demote' if user.role == 'owner' else 'users.settings.promote') }}</button></div>
     </form>
   </section>
@@ -74,7 +78,7 @@
     <form method="post" action="{{ url_for('users.delete_account') }}" class="form" data-confirm="{{ t('users.settings.delete_confirm') }}">
       {{ forms.csrf() }}
       <p class="hint">{{ t('users.settings.delete_warning') }}</p>
-      {{ m.password('delete-password', t('auth.field.current_password')) }}
+      {{ m.current_password('delete-password') }}
       <div><button class="btn btn--danger" type="submit">{{ t('users.settings.delete_account') }}</button></div>
     </form>
   </section>

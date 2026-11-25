@@ -8,7 +8,7 @@
   <div class="page-header__actions">
     {% if can_create %}<button type="button" class="btn btn--primary" data-dialog-open="kanban-create-dialog">{{ t('kanban.list.new') }}</button>{% endif %}
     {% if show_mine %}<a class="btn" href="{{ url_for('kanban.mine') }}">{{ t('kanban.mine.title') }}</a>{% endif %}
-    {% if can_create or show_settings or archived_count %}
+    {% if can_create or archived_count %}
     <details class="menu">
       <summary class="btn menu__toggle" aria-label="{{ t('kanban.list.options_label') }}">{{ t('kanban.list.options') }}</summary>
       <div class="menu__panel" role="menu">
@@ -17,7 +17,6 @@
         {% if show_archived %}<a role="menuitem" href="{{ url_for('kanban.index') }}">{{ t('kanban.list.hide_archived') }}</a>
         {% else %}<a role="menuitem" href="{{ url_for('kanban.index', archived=1) }}#kanban-archived-boards">{{ t('kanban.list.show_archived', count=archived_count) }}</a>{% endif %}
         {% endif %}
-        {% if show_settings %}<button type="button" role="menuitem" data-dialog-open="kanban-settings-dialog">{{ t('kanban.settings.button') }}</button>{% endif %}
       </div>
     </details>
     {% endif %}
@@ -25,15 +24,13 @@
 </header>
 
 {% if boards %}
-<ul class="kanban-boards" id="kanban-board-list" data-reorderable="{{ 'true' if can_reorder else 'false' }}"
-    data-open-access="{{ 'true' if open_access else 'false' }}" data-order-version="{{ order_version }}">
+<ul class="kanban-boards" id="kanban-board-list" data-reorderable="{{ 'true' if can_reorder else 'false' }}">
   {% for board in boards %}
   <li class="kanban-boards__item" data-board-id="{{ board.id }}">
     <div class="kanban-boards__body">
     <div class="kanban-boards__heading">
     <a class="kanban-boards__title" href="{{ url_for('kanban.board', board_id=board.id) }}">{{ board.title }}</a>
-    {% if board.visibility == 'private' %}<span class="badge">{{ t('kanban.visibility.private') }}</span>
-    {% elif board.visibility == 'shared' %}<span class="badge">{{ t('kanban.visibility.shared') }}</span>{% endif %}
+    {% if board.visibility != 'members' %}<span class="badge">{{ t('sharing.badge.' ~ board.visibility) }}</span>{% endif %}
     </div>
     {% if board.excerpt %}<p class="kanban-boards__desc">{{ board.excerpt }}</p>{% endif %}
     <p class="small muted">{{ board.creator_username or t('common.unknown_user') }} · {{ board.created_at|time_ago }}</p>
@@ -50,9 +47,6 @@
 {#- Announces a board's new place after a move with the arrow buttons or a drop. It sits after the list,
     so the list stays right under the page header (whose rule is the list's top edge). -#}
 <p class="visually-hidden" aria-live="polite" id="kanban-list-live"></p>
-{% if can_reorder and boards|length > 1 %}
-<p class="hint kanban-list-order">{{ t('kanban.list.reorder_hint') }}</p>
-{% endif %}
 {{ forms.pagination(page, pages, 'kanban.index', {'archived': 1} if show_archived else {}) }}
 {% else %}
 <div class="empty-state"><p>{{ t('kanban.list.empty') }}</p></div>
@@ -110,23 +104,6 @@
 </dialog>
 {% endif %}
 
-{% if show_settings %}
-<dialog id="kanban-settings-dialog" aria-labelledby="kanban-settings-title">
-  <h2 id="kanban-settings-title">{{ t('kanban.settings.title') }}</h2>
-  <form class="form" method="post" action="{{ url_for('kanban.save_settings') }}">
-    {{ forms.csrf() }}
-    {% set levels = [('admin', t('kanban.settings.level.admin')), ('editor', t('kanban.settings.level.editor')), ('all', t('kanban.settings.level.all'))] %}
-    {{ forms.select('kanban_access', t('kanban.settings.access'), levels, kanban_settings.kanban_access or 'admin', t('kanban.settings.access_hint')) }}
-    {{ forms.select('kanban_write_access', t('kanban.settings.write_access'), levels, kanban_settings.kanban_write_access or 'admin', t('kanban.settings.write_access_hint')) }}
-    {{ forms.checkbox('kanban_open_access', t('kanban.settings.open_access'), kanban_settings.kanban_open_access, t('kanban.settings.open_access_hint')) }}
-    {{ forms.checkbox('kanban_public_access_enabled', t('kanban.settings.public_access'), kanban_settings.kanban_public_access_enabled, t('kanban.settings.public_access_hint')) }}
-    <div class="btn-row btn-row--end">
-      <button type="button" class="btn" data-dialog-close>{{ t('common.cancel') }}</button>
-      <button type="submit" class="btn btn--primary">{{ t('common.save') }}</button>
-    </div>
-  </form>
-</dialog>
-{% endif %}
 {% endblock %}
 {% block scripts %}
 <script src="{{ asset_url('kanban-list.js', blueprint='kanban') }}" defer></script>

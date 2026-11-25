@@ -8,40 +8,41 @@
   <li><a href="{{ url_for('admin.user_detail', user_id=target.id) }}">{{ target.username }}</a></li>
   <li aria-current="page">{{ t('admin.permissions.title') }}</li>
 </ol></nav>
-<header class="page-header"><h1>{{ t('admin.permissions.heading', username=target.username) }}</h1></header>
+{% set editable = not protection and overridable %}
+<header class="page-header{% if editable %} page-header--save{% endif %}"><h1>{{ t('admin.permissions.heading', username=target.username) }}</h1>
+  {%- if editable %}{{ forms.page_save('user-permissions-form') }}{% endif %}</header>
 
 {% if protection %}
 <div class="alert alert--warning"><div class="alert__body">{{ t(protection) }}</div></div>
-{% elif target.custom_role_id %}
-<div class="alert"><div class="alert__body">{{ t('admin.permissions.error.custom_role') }}
-  <a href="{{ url_for('admin.edit_role', role_id=target.custom_role_id) }}">{{ t('admin.permissions.open_role') }}</a></div></div>
 {% elif not overridable %}
 <div class="alert"><div class="alert__body">{{ t('admin.permissions.error.admin_target') }}</div></div>
 {% else %}
-<p class="muted">{{ t('admin.permissions.customized') if access.customized else t('admin.permissions.defaults', role=t('admin.role.' ~ target.role)) }}</p>
-<form method="post" class="form">
+{#- What the person starts from, and that ticks differing from it are their own changes. -#}
+<p class="muted">
+  {%- if custom_role %}{{ t('admin.permissions.starts_custom', username=target.username, role=custom_role.name) }}
+  <a href="{{ url_for('admin.edit_role', role_id=custom_role.id) }}">{{ t('admin.permissions.open_role') }}</a>
+  {%- else %}{{ t('admin.permissions.starts_defaults', username=target.username, role=t('admin.role.' ~ target.role)) }}{% endif %}</p>
+<form method="post" class="form" id="user-permissions-form">
   {{ forms.csrf() }}
-  {{ permission_groups(groups, access.keys) }}
+  {{ permission_groups(groups, access.keys, marked=access.changed) }}
   {#- Category access: drawn like the permission groups above (heading and rule, no box). -#}
   <div class="perm-groups">
+  {% for kind, restricted, selected in (('read', access.read_restricted, access.read_ids), ('write', access.write_restricted, access.write_ids)) %}
+  {% set role_limit = custom_role and custom_role[kind ~ '_restricted'] %}
   <fieldset>
-    <legend>{{ t('admin.permissions.read_access') }}</legend>
-    {{ forms.checkbox('read_restricted', t('admin.permissions.read_restricted'), checked=access.read_restricted) }}
-    <div data-reveal-for="read_restricted" data-reveal-values="1"{% if not access.read_restricted %} hidden{% endif %}>
-      {{ category_list('read_category_ids', access.read_ids, all_categories) }}
+    <legend>{{ t('admin.permissions.' ~ kind ~ '_access') }}</legend>
+    {%- if role_limit %}
+    {% set listed = all_categories|selectattr('id', 'in', custom_role[kind ~ '_ids'])|map(attribute='name')|join(', ') %}
+    {{ forms.checkbox(kind ~ '_restricted', t('admin.permissions.' ~ kind ~ '_extra'), checked=restricted, hint=t('admin.permissions.role_limits', categories=listed or t('admin.permissions.role_limits_none'))) }}
+    {%- else %}
+    {{ forms.checkbox(kind ~ '_restricted', t('admin.permissions.' ~ kind ~ '_restricted'), checked=restricted, hint=t('admin.roles.write_implies_read') if kind == 'write' else '') }}
+    {%- endif %}
+    <div data-reveal-for="{{ kind }}_restricted" data-reveal-values="1"{% if not restricted %} hidden{% endif %}>
+      {{ category_list(kind ~ '_category_ids', selected, all_categories) }}
     </div>
   </fieldset>
-  {% if target.role == 'editor' %}
-  <fieldset>
-    <legend>{{ t('admin.permissions.write_access') }}</legend>
-    {{ forms.checkbox('write_restricted', t('admin.permissions.write_restricted'), checked=access.write_restricted) }}
-    <div data-reveal-for="write_restricted" data-reveal-values="1"{% if not access.write_restricted %} hidden{% endif %}>
-      {{ category_list('write_category_ids', access.write_ids, all_categories) }}
-    </div>
-  </fieldset>
-  {% endif %}
+  {% endfor %}
   </div>
-  <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
 </form>
 {% if access.customized %}
 <section class="card">

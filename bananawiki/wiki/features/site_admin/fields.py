@@ -44,6 +44,8 @@ class Field:
     (rules that depend on more than the value, such as who is saving).
     ``optional`` fields left out of a form keep their value (fields added after
     the one-page form of 1.7, which scripts may still post).
+    ``advanced`` fields are listed last in their tab, under a closed
+    "Advanced" disclosure: few administrators need them.
     """
 
     name: str
@@ -60,6 +62,7 @@ class Field:
     reveal: tuple[str, str] | None = None
     check: Callable[[Any], str | None] | None = field(default=None, compare=False)
     optional: bool = False
+    advanced: bool = False
 
     @property
     def label(self) -> str:

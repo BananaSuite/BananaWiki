@@ -1,0 +1,27 @@
+{#- "What <name> can do": the effective access of one account, from permissions.load_grants
+    (service.access_summary). Context: target, summary, custom_role. -#}
+<section class="card">
+  <h2>{{ t('admin.summary.title', username=target.username) }}</h2>
+  {% if summary.admin %}
+  <p>{{ t('admin.summary.admin') }}</p>
+  {% else %}
+  <dl class="definition-list">
+    <dt>{{ t('admin.summary.starts') }}</dt>
+    <dd>{% if custom_role %}{{ t('admin.summary.custom_role', role=custom_role.name) }}{% else %}{{ t('admin.summary.defaults', role=t('admin.role.' ~ target.role)) }}{% endif %}
+      {%- if summary.personal %} · <a href="{{ url_for('admin.user_permissions', user_id=target.id) }}">{{ t('admin.summary.own_changes') }}</a>{% endif %}</dd>
+    <dt>{{ t('admin.summary.reads') }}</dt>
+    <dd>{% if not summary.reads_pages %}{{ t('admin.summary.no_pages') }}{% elif summary.read is none %}{{ t('admin.summary.every_category') }}{% elif summary.read %}{{ t('admin.summary.only', categories=summary.read|join(', ')) }}{% else %}{{ t('admin.summary.no_category') }}{% endif %}</dd>
+    <dt>{{ t('admin.summary.writes') }}</dt>
+    <dd>{% if summary.write is none %}{{ t('admin.summary.where_they_read') }}{% elif summary.write %}{{ t('admin.summary.only', categories=summary.write|join(', ')) }}{% else %}{{ t('admin.summary.no_category') }}{% endif %}</dd>
+    {% for kind, keys in summary.content.items() %}
+    <dt>{{ t('permission_group.' ~ kind) }}</dt>
+    <dd>{% if keys %}{% for key in keys %}{{ t('permission.' ~ key) }}{% if not loop.last %} · {% endif %}{% endfor %}{% elif kind == 'pages' and not summary.reads_pages %}{{ t('admin.summary.nothing') }}{% else %}{{ t('admin.summary.view_only') }}{% endif %}</dd>
+    {% endfor %}
+    {% if summary.added %}<dt>{{ t('admin.summary.added') }}</dt>
+    <dd>{% for key in summary.added %}{{ t('permission.' ~ key) }}{% if not loop.last %} · {% endif %}{% endfor %}</dd>{% endif %}
+    {% if summary.removed %}<dt>{{ t('admin.summary.removed') }}</dt>
+    <dd>{% for key in summary.removed %}{{ t('permission.' ~ key) }}{% if not loop.last %} · {% endif %}{% endfor %}</dd>{% endif %}
+    {% if summary.chat_disabled %}<dt>{{ t('admin.users.chat') }}</dt><dd>{{ t('admin.users.chat_state_off') }}</dd>{% endif %}
+  </dl>
+  {% endif %}
+</section>

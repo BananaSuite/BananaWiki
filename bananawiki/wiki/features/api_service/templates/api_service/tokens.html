@@ -39,7 +39,7 @@
       {{ forms.checkbox('scopes', t('api_service.scope.' ~ scope), checked=(scope == 'pages'), value=scope) }}
       {% endfor %}
     </fieldset>
-    {{ forms.checkbox('read_only', t('api_service.tokens.read_only'), hint=t('api_service.tokens.read_only_hint')) }}
+    {{ forms.checkbox('read_only', t('api_service.tokens.read_only')) }}
     {{ forms.field('expires_at', t('api_service.tokens.expires_at'), type='datetime-local', hint=t('api_service.tokens.expires_hint')) }}
     <div class="btn-row"><button type="submit" class="btn btn--primary">{{ t('api_service.tokens.create_button') }}</button></div>
   </form>
@@ -52,7 +52,6 @@
   {% if not tokens %}
   <div class="empty-state">{{ t('api_service.tokens.none') }}</div>
   {% else %}
-  <p class="hint">{{ t('api_service.tokens.cascade_hint') }}</p>
   <div class="table-wrap"><table class="table table--stack">
     <thead><tr>
       <th scope="col">{{ t('common.name') }}</th>

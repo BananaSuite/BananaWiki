@@ -12,7 +12,7 @@ A page suits text read from top to bottom. A canvas suits relationships: systems
 
 ## Permissions
 
-Administrators decide which roles can use canvases and which can create them; they can also let single people create canvases through their custom role or individual permissions. The canvas's creator shares it with people or roles, for viewing or editing.
+Canvases follow the same rules as boards: members create them and manage their own, a new canvas is seen only by its creator, who makes it visible to all members or to visitors and shares it with people or roles, to view or to edit. Editors change every canvas they can open.
 
 ## History and export
 

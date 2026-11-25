@@ -109,14 +109,15 @@ def test_reorder_reads_a_bounded_part_of_the_wanted_order():
 def test_saved_orders_are_read_whole(app, admin_client, db, make_user, monkeypatch):
     """Only orders a client sends are cut short; a saved order may name many boards one cannot see."""
     monkeypatch.setattr(store, "REORDER_SLACK", 0)
-    db.execute("UPDATE site_settings SET kanban_open_access = 1 WHERE id = 1")
     created = {title: board_id_from(admin_client.post("/kanban/create", data={"title": title}))
                for title in ("V1", "V2", "P1", "P2")}
-    for title in ("P1", "P2"):
+    for title in ("V1", "V2"):
         admin_client.post(f"/kanban/{created[title]}/share", data={"action": "set_visibility",
-                                                                  "visibility": "private"})
+                                                                  "visibility": "members"})
+    # The order shared under the retired open access, which members without their own order follow.
     order = [created[title] for title in ("P1", "P2", "V1", "V2")]
-    admin_client.post("/api/kanban/board-order", json={"board_ids": order})
+    db.executemany("INSERT INTO kanban_user_board_order (user_id, board_id, sort_order) VALUES (NULL, ?, ?)",
+                   [(board_id, index) for index, board_id in enumerate(order)])
     reader = make_user("reader", role="editor")
     listed = in_app(app, lambda: [row["id"] for row in service.ordered_boards(reader)])
     assert listed == [created["V1"], created["V2"]]

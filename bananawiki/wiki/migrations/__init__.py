@@ -45,6 +45,23 @@ Version history
 21   Easter eggs administrators design (``site_settings.easter_egg_configs``)
      and who found them (``easter_egg_finds``), with the 1.4 eggs and finds
      imported. See :mod:`.v21_easter_egg_configs`.
+22   Options merged into others: the site icon is always the one selected
+     (``favicon_enabled`` retired). See :mod:`.v22_merged_settings`.
+23   One permission model for pages, boards and canvases: the wiki's own base
+     role defaults (``base_role_permissions``), page creators
+     (``pages.created_by``), the same visibilities and shares for boards and
+     canvases, and the retired per-feature access settings translated. See
+     :mod:`.v23_permissions`.
+24   Fewer settings: those folded into another are translated, the rest
+     keep their stored value unused (``settings.FIXED``). See
+     :mod:`.v24_fewer_settings`.
+25   Sign-in methods and the hosting portal: accounts without a password of
+     their own, confirming with the portal, hosting administrators acting as
+     members. See :mod:`.v25_hosting_signin`.
+26   A person's own permissions are changes to what their role gives
+     (``user_permissions.granted``), and members ask for edit access
+     (``access_requests``, ``site_settings.access_requests_enabled``). See
+     :mod:`.v26_edit_access`.
 
 A 1.4 database at version 3 upgrades in place. New databases are created from
 ``baseline_v3.sql`` followed by every later migration, so fresh and upgraded
@@ -77,6 +94,11 @@ from . import (
     v19_stored_amounts,
     v20_signin_mode,
     v21_easter_egg_configs,
+    v22_merged_settings,
+    v23_permissions,
+    v24_fewer_settings,
+    v25_hosting_signin,
+    v26_edit_access,
 )
 
 APPLICATION_ID = 0x42574B49  # "BWKI", unchanged from 1.4
@@ -100,6 +122,11 @@ MIGRATIONS = (
     v19_stored_amounts.upgrade,  # 18 -> 19
     v20_signin_mode.upgrade,  # 19 -> 20
     v21_easter_egg_configs.upgrade,  # 20 -> 21
+    v22_merged_settings.upgrade,  # 21 -> 22
+    v23_permissions.upgrade,  # 22 -> 23
+    v24_fewer_settings.upgrade,  # 23 -> 24
+    v25_hosting_signin.upgrade,  # 24 -> 25
+    v26_edit_access.upgrade,  # 25 -> 26
 )
 LATEST = BASELINE + len(MIGRATIONS)
 
@@ -120,3 +147,5 @@ def bootstrap(conn: sqlite3.Connection) -> None:
     )
     for migration in MIGRATIONS:
         migration(conn)
+    # Version 23 kept older wikis' Kanban and canvas settings; a new wiki starts from the built-in defaults.
+    conn.execute("DELETE FROM base_role_permissions")

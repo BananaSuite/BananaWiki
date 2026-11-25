@@ -67,6 +67,7 @@ from . import (
     RuntimeFailure,
     TenantSpec,
     TenantStatus,
+    WikiAccount,
     WikiUser,
     crypto,
     dnscheck,
@@ -761,6 +762,43 @@ class AgentRuntime:
                  for row in result.get("users", []) if isinstance(row, dict)]
         total = result.get("total")
         return users, total if type(total) is int else len(users)
+
+    def list_links(self, spec: TenantSpec, *, limit: int = 500, offset: int = 0) -> tuple[list[WikiAccount], int]:
+        self._existing(self._cfg(), spec.data_dir_name)
+        result = self._task(spec.data_dir_name, {"action": "list_links", "limit": max(1, min(1000, limit)),
+                                                 "offset": max(0, offset)})
+        accounts = []
+        for row in result.get("users", []):
+            if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"]:
+                continue
+            link = row.get("link")
+            link = {key: str(link.get(key) or "")[:200] for key in ("account_id", "portal_username", "linked_at")} \
+                if isinstance(link, dict) and link.get("account_id") else None
+            accounts.append(WikiAccount(
+                id=row["id"][:200], username=str(row.get("username") or "")[:200], role=str(row.get("role") or "")[:20],
+                email=str(row.get("email") or "")[:254], status=str(row.get("status") or "")[:20],
+                password_set=bool(row.get("password_set", True)), link=link))
+        total = result.get("total")
+        return accounts, total if type(total) is int else len(accounts)
+
+    def link_users(self, spec: TenantSpec, links: Sequence[tuple[str, str, str]], *, actor: str,
+                   rule: str) -> tuple[list[str], dict[str, str]]:
+        self._existing(self._cfg(), spec.data_dir_name)
+        result = self._task(spec.data_dir_name, {
+            "action": "link_users", "actor": actor[:200], "rule": rule[:40],
+            "links": [{"user_id": user_id, "account_id": account_id, "portal_username": name[:200]}
+                      for user_id, account_id, name in links]})
+        asked = {user_id for user_id, _account, _name in links}
+        linked = [value for value in result.get("linked", []) if isinstance(value, str) and value in asked]
+        refused = {str(item.get("user_id")): str(item.get("reason") or "refused")[:40]
+                   for item in result.get("refused", []) if isinstance(item, dict) and item.get("user_id") in asked}
+        return linked, refused
+
+    def unlink_user(self, spec: TenantSpec, wiki_user_id: str, *, actor: str) -> str | None:
+        self._existing(self._cfg(), spec.data_dir_name)
+        result = self._task(spec.data_dir_name, {"action": "unlink_user", "user_id": wiki_user_id, "actor": actor[:200]})
+        account_id = result.get("account_id")
+        return account_id[:200] if isinstance(account_id, str) and account_id else None
 
     def set_user_password(self, spec: TenantSpec, username: str, password: str, role: str) -> None:
         self._existing(self._cfg(), spec.data_dir_name)

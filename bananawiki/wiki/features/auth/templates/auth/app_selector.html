@@ -5,7 +5,6 @@
 {% block content %}
 <div class="card auth-apps-card">
   <h1>{{ t('auth.app_selector.title') }}</h1>
-  <p class="muted">{{ t('auth.app_selector.subtitle') }}</p>
   <ul class="auth-apps">
     {#- Every tile has the same shape: the sidebar's icon and the name (the wiki's description is for screen readers). -#}
     <li><a class="auth-apps__item" href="/"><span class="auth-apps__name"><span class="auth-apps__icon">{{ icon('book') }}</span><strong>{{ t('auth.app_selector.wiki') }}</strong></span><span class="visually-hidden">{{ t('auth.app_selector.wiki_desc') }}</span></a></li>

@@ -29,7 +29,7 @@ chooses otherwise. `BW_MANAGED_PLUGIN_DENYLIST` removes features entirely.
 | [Page export](#page-export) | `page_export` | always on (settings per format) | on | |
 | [Page builder](#page-builder) | `page_builder` | plugin (stored as `page_builder_enabled`) | off | hidden |
 | [Page governance](#page-governance) | `page_governance` | plugin | off | hidden |
-| [Contribution approval](#contribution-approval) | `contributions` | setting `contribution_approval_enabled` | off | hidden |
+| [Proposed edits](#proposed-edits) | `contributions` | setting `contribution_approval_enabled` | off | hidden |
 | [Deletion slowdown](#deletion-slowdown) | `deletion_slowdown` | plugin | off | |
 | [Temporary items](#temporary-items) | `temporary_accounts` | plugin | off | |
 | [Announcements](#announcements) | `announcements` | plugin | on | |
@@ -44,7 +44,7 @@ chooses otherwise. `BW_MANAGED_PLUGIN_DENYLIST` removes features entirely.
 | [Mascot](#mascot) | `mascot` | plugin | on | |
 | [Personal data export](#personal-data-export) | `user_data_export` | plugin | on | |
 | [Custom pages](#custom-pages) | `custom_pages` | plugin | off | hidden |
-| [REST API](#rest-api) | `api_service` | plugin + setting `api_service_enabled` | off | |
+| [REST API](#rest-api) | `api_service` | plugin | off | |
 | [Federation](#federation) | `federation` | operator `BW_FEDERATION_ENABLED` | off | hidden |
 | [Audit log](#audit-log) | `audit` | plugin | on | |
 | [Administration](#administration) | `admin`, `site_admin`, `bulk_manage`, `plugin_manager` | always on | on | simpler |
@@ -56,17 +56,16 @@ chooses otherwise. `BW_MANAGED_PLUGIN_DENYLIST` removes features entirely.
 
 BM mode is the easy mode of a wiki, for groups that want pages and little
 else. It replaces the 1.7 "easy wiki" setting. **Admin → BM mode**
-(`/admin/bm-mode`) turns it on or off and adjusts it item by item:
+(`/admin/bm-mode`) turns it on or off, says whether people may switch it for
+themselves and whether new accounts start in it:
 
-* **Features**: one tick per feature. In BM mode the features marked *hidden*
-  in the table above start unticked; every other feature starts ticked, Kanban
-  boards and canvases included. An unticked feature behaves as if it were
-  switched off (its pages answer 404), but its own plugin switch and settings
-  are kept: switching it on under **Admin → Plugins** also ticks it here.
-  A feature a plain administrator may not switch off (the audit log) stays
-  shown for them. Third-party plugins are left as **Admin → Plugins** sets
-  them.
-* **Simplifications**, each on by default while BM mode is on (they only
+* **Features**: in BM mode the features marked *hidden* in the table above
+  are hidden; every other feature shows, Kanban boards and canvases included.
+  A hidden feature behaves as if it were switched off (its pages answer 404),
+  but its own plugin switch and settings are kept: switching it on under
+  **Admin → Plugins** shows it in BM mode too. Third-party plugins are left
+  as **Admin → Plugins** sets them.
+* **Simplifications**, all of them while BM mode is on (they only
   change how controls and menu entries look, mostly by hiding them; every
   page behind them stays at its address and nobody loses a permission):
   * a shorter editor toolbar (bold, italic, a heading, bulleted and numbered
@@ -295,7 +294,7 @@ custom label with a colour. Permissions: `tag.edit_difficulty`,
   characters outside Latin-1. Needs `pdf_export_enabled` and the
   `page.export_pdf` permission.
 * **Markdown** (`/page/<slug>/export-md`) and **import into a page**
-  (`/page/<slug>/import-md`). Needs `markdown_export_enabled`.
+  (`/page/<slug>/import-md`), for whoever may edit the page.
 * **Bulk Markdown** (**Admin → Bulk Markdown**, administrators): export every
   page as `<category folders>/<slug>.md` with front matter, embedded images
   and attachments in one ZIP; import `.md` files or ZIPs of them (folders
@@ -351,11 +350,11 @@ content, so search, history and exports keep working.
 * Image uploads show their progress, and refused files (wrong type, too large)
   say why next to the image field.
 
-Who may use it: the feature on, `page_builder_access` reached (administrators,
-editors or everyone), and the right to edit that page (so plain users cannot
-edit pages through it). Publishing goes through the normal page service
+Who may use it: the feature on (**Admin → Plugins**), the permission
+`page.use_builder` (off by default; tick it on **Admin → Roles**), and the
+right to edit that page. Publishing goes through the normal page service
 (history, conflicts, protection); an account publishes at most 30 times a
-minute, as the Markdown editor saves. Settings on **Admin → Page builder**.
+minute, as the Markdown editor saves.
 Builder pages are hidden from anonymous visitors unless marked public by an
 administrator, and always under `BW_FORBID_PUBLIC_BUILDER_PAGES`. A version
 published or restored from the history by anyone else is not public until an
@@ -382,23 +381,23 @@ Two tools for teams where pages have owners:
   someone else, administrators and owners included (the server's own
   commands may); request the unlocks first. Each change of the protection
   setting is recorded in the audit log.
-* **Reservations / check-outs** (`page_reservations_enabled`): an editor
-  reserves a page for `page_reservation_duration_hours`; others cannot edit or
-  delete it meanwhile (administrators can, with a warning). Releasing starts a
-  cooldown (`page_reservation_cooldown_hours`). Each editor has a quota
-  (`default_reserved_pages_quota`) and can request a bigger one; requests up to
-  `reservation_quota_auto_approve_max` are approved automatically; an editor
-  files at most 10 requests in 24 hours, cancelled ones included. A
+* **Reservations** (`page_reservations_enabled`): an editor reserves a page
+  for `page_reservation_duration_hours`; others cannot edit or delete it
+  meanwhile (administrators can, with a warning). Releasing starts a wait of
+  a day before the same editor reserves that page again. Each editor has a
+  quota (`default_reserved_pages_quota`) and can request a bigger one, which
+  an administrator reviews; an editor files at most 10 requests in 24 hours,
+  cancelled ones included. A
   check-out lapses while its holder may no longer edit the page (for
   example after it moved into a category they cannot read): it stops
   blocking others and leaves the holder's quota page; administrators still
-  see and release it under **Admin → Check-outs**.
+  see and release it under **Admin → Reservations**.
 
 Pages: **Reservations** (`/reservations`), **Reservation quota**
-(`/settings/reservation-quota`), **Admin → Check-outs** and
+(`/settings/reservation-quota`), **Admin → Reservations** and
 **Admin → Page governance**.
 
-## Contribution approval
+## Proposed edits
 
 People who may read a page but not edit it (`contribution.propose`) propose an
 edit with a reason from the page (`/page/<slug>/propose-edit`). Reviewers
@@ -410,12 +409,11 @@ opened: if the proposal or the page changed in the meantime it is refused and
 the review shows the current state. The review lists at most 5000 lines of the
 diff and counts the changed lines it leaves out; approving still applies the
 whole proposal, not only what was shown. Each user has a quota of waiting
-proposals (`default_contribution_quota`, requests up to
-`contribution_quota_auto_approve_max` approved automatically, at most 10
-requests in 24 hours per user, cancelled ones included). A proposal the
+proposals (`default_contribution_quota`); bigger quotas are requested and
+reviewed (at most 10 requests in 24 hours per user, cancelled ones included). A proposal the
 proposer withdraws keeps no text, and an account opens the proposal form,
 proposes and withdraws at most 30 times a minute in all. Old proposals
-expire. **My contributions** at `/my-contributions`.
+expire. **My proposed edits** at `/my-contributions`.
 
 ## Deletion slowdown
 
@@ -512,11 +510,11 @@ text drops control characters other than tabs and line breaks.
   column at once) takes it off the board but keeps it with its comments and
   files; the board's *Archived* panel opens, restores (at the end of its
   column) or deletes them for good. Archived tickets cannot be moved and are
-  left out of *My tickets*. The owner can archive a board: it leaves the board
-  list (*Show archived boards* brings it back into view) and is read-only
-  until restored.
-* **Board list** (`/kanban`): 100 boards a page, in your order (the shared
-  one with open access). Boards are moved on the first page; later pages
+  left out of *My tickets*. Whoever may delete a board may archive it: it
+  leaves the board list (*Show archived boards* brings it back into view) and
+  is read-only until restored.
+* **Board list** (`/kanban`): 100 boards a page, in your order (until you
+  arrange your own, the order shared while the retired open access was on). Boards are moved on the first page; later pages
   keep their order after it. *Show archived boards* lists the first 100
   archived ones. Each account creates at most 10 boards a minute (in the
   browser and through the REST API together) and saves the order at most 30
@@ -589,11 +587,11 @@ text drops control characters other than tabs and line breaks.
   and `kanban.comment.created`, emitted after the change is saved.
 * Embed a read-only board in a page with `[[kanban board="<id>"]]`.
 
-Settings (**Kanban → settings** for administrators): `kanban_access` and
-`kanban_write_access` (weakest role with global view/write access:
-administrators, editors or everyone), `kanban_open_access`,
-`kanban_public_access_enabled` (anonymous read of public boards in public
-mode). Permissions: `kanban.view`, `kanban.create`.
+Who sees and changes a board: its visibility (*Only people it is shared
+with*, *All members*, *Everyone*), its shares with people and roles (view or
+edit), and the `kanban.*` permissions (view, create, edit own, delete own,
+share own, edit all, delete all); see [permissions](permissions.md#boards-and-canvases-who-sees-them).
+Boards have no settings page of their own.
 
 ## Canvases
 
@@ -610,19 +608,19 @@ links to wiki pages, connected by edges.
 * **History** with restore. Changes by one person within 15 minutes, or by
   anyone within a minute of the latest entry, share one entry, which keeps
   the name of the person who started it.
-* **Sharing** per person or role: view, edit, or an explicit "none".
-* **Canvas list** (`/canvas`): 100 canvases a page, in your order (the shared
-  one with open access). Canvases are moved on the first page; later pages
+* **Sharing** with people and roles (view or edit) and a visibility, as for
+  boards (see [permissions](permissions.md#boards-and-canvases-who-sees-them)).
+* **Canvas list** (`/canvas`): 100 canvases a page, in your order (until you
+  arrange your own, the order shared while the retired open access was on). Canvases are moved on the first page; later pages
   keep their order after it. An order places at most 5000 canvases; the
   others follow, most recently changed first.
 * **Deleted accounts**: deleting an account (by its holder, by an
   administrator, or from the hosting portal) keeps the canvases it created
-  that others can open (shared or public ones, private ones shared with a
-  person or a role, and, while open access is on, every canvas not archived):
-  they pass to the administrator who deleted it, otherwise (and always from
-  the hosting portal) to the longest-standing active owner or administrator.
-  Private canvases shared with nobody (archived or not) and, under open
-  access, archived ones shared with nobody are deleted with the account.
+  that others can open (visible to members or the public, or private ones
+  shared with a person or a role): they pass to the administrator who
+  deleted it, otherwise (and always from the hosting portal) to the
+  longest-standing active owner or administrator. Private canvases shared
+  with nobody (archived or not) are deleted with the account.
 * **ZIP export and import** with images, and embeds in pages with
   `[[canvas slug="…"]]`.
 * **Wiki-page nodes** store only the id of their page. The title, address
@@ -696,19 +694,13 @@ owner, or update of a node's page link) and `canvas.deleted`, with `canvas`
 (the layout row) and `actor_id`. The web interface and the REST API emit the
 same events.
 
-Settings (**Admin → Canvas**): `canvas_access`, `canvas_write_access`,
-`canvas_open_access`, `canvas_public_access_enabled`. Archived canvases are
-visible only to their creator and administrators. Permissions:
-`canvas.view`, `canvas.create`.
+Archived canvases are visible only to their creator and administrators.
+Permissions: the `canvas.*` verbs, as for boards. Canvases have no settings
+page of their own.
 
-**Creating and importing** needs `canvas.create` and a base role at least
-`canvas_write_access` (administrators by default). To let one person below
-that role create canvases, give them `canvas.create` in their custom role or
-their individual permissions: such an explicit grant is enough, while the
-editors' default is not, so nobody else gains anything. Whoever may create
-also gets the canvas list and its sidebar link, showing their own canvases
-and those shared with them. The web interface (create, import) and the REST
-API (`POST /canvas`) apply the same rule, and share one budget of 10
+**Creating and importing** needs `canvas.create` (members and editors by
+default). The web interface (create, import) and the REST API
+(`POST /canvas`) apply the same rule, and share one budget of 10
 creations a minute per account (imports have their own 10 a minute). What
 an account stores in canvases also counts against 128 MB per account in 24
 hours, counted to the byte, whatever becomes of the canvases: the content a
@@ -718,11 +710,7 @@ add to a canvas's history (a canvas whose history is full costs about
 nothing more; making a canvas smaller gives nothing back). Past that, a
 change that makes a canvas larger is refused until the day moves on; other
 changes are made, and the canvas's oldest versions make room for their
-history entry. Limiting an editor's categories on
-**Editor access** gives them individual permissions copied from the defaults
-without `canvas.create`, so it never authorizes anyone. Where editors may
-create anyway (`canvas_write_access` `editor` or `all`, or open access), tick
-**Create canvases** again on their **Permissions** page.
+history entry.
 
 ## Chats and groups
 
@@ -761,8 +749,7 @@ create anyway (`canvas_write_access` `editor` or `all`, or open access), tick
   them sent, as soon as the deletion is done, whoever deletes it (also the
   hosting portal's "remove wiki user"); a reported message keeps its copy in
   the report.
-* Members may show their groups on their profile
-  (`profile_group_badges_enabled`).
+* Members may show their groups on their profile, group by group.
 
 Administrators monitor conversations and groups, review reported messages,
 clear a direct conversation for both participants when moderating, and
@@ -770,15 +757,15 @@ configure everything at **Admin → Chats** (`/admin/chats`). Opening a private
 conversation or a group they are not in, downloading its attachments,
 exporting, clearing, deleting or taking it over, deleting a member's message
 in a group they do not moderate, and resolving a report are recorded in the
-audit log. Settings: message length, attachments, direct
-messages and groups on/off, whether members may start them, and separate
-retention policies for messages and attachments of direct messages and groups
-(applied daily at `chat_cleanup_hour`, every `chat_cleanup_frequency_days`).
-Changes to these settings, and each run of the policy that deletes anything
+audit log. Settings: the largest file, files per person per day, and after
+how many days messages and files of direct messages and of groups are
+deleted (0 keeps them; applied daily at 03:00 site time). Messages are at
+most 5000 characters. Changes to these settings, and each run that deletes anything
 (`chat.retention_applied`, with how much it deleted), are recorded in the
 audit log.
-**Admin → Users** can switch chat off for one account. Permissions:
-`chat.dm`, `chat.group`, `chat.create_group`, `chat.upload`.
+**Admin → Users** can switch chat off for one account. Who may do what is
+the chat permissions (no site switch): `chat.dm`, `chat.start_dm`,
+`chat.group`, `chat.create_group`, `chat.upload`.
 
 ## Read aloud
 
@@ -786,8 +773,8 @@ An audio player under each page: readers press **Generate audio**, a worker
 synthesises the page with a neural voice (Piper) on the server or on a GPU
 server, and the audio is kept until the page changes. Speeds from 0.75× to
 2×, download as audio file, automatic generation after edits (optional),
-anonymous listening in public mode (optional), and a choice of languages the
-wiki may speak. **Admin → Read aloud** shows the queue and dependencies.
+anonymous listening in public mode (optional). Pages are read in the wiki's
+interface languages that have a voice (or `BW_TTS_LANGUAGES`). **Admin → Read aloud** shows the queue and dependencies.
 The voice reads each heading, list item and table row as a sentence of its
 own, reads web addresses as the site's name and skips embeds and the contents
 list. The highlight follows the voice from the title on and pauses for a few
@@ -974,8 +961,8 @@ Operator switch `BW_FEDERATION_ENABLED=1`. See [federation](federation.md).
 ## Audit log
 
 **Admin → Audit log** (`/admin/audit`) lists security-relevant actions with
-filters; owners and superusers set the retention in days and are the only
-ones who can switch the log off. See [security](security.md#audit-log).
+filters; entries are kept a year (`BW_AUDIT_RETENTION_DAYS`), and owners and
+superusers are the only ones who can switch the log off. See [security](security.md#audit-log).
 
 ## Administration
 
@@ -989,31 +976,42 @@ Everything under **Admin** (`/admin/dashboard`), for administrators:
   two-step verification (owners and superusers reset it for an account that
   lost its app and recovery codes). Pending sign-ups are approved or denied
   here.
-* **Custom roles**, **Invite codes** (with a number of uses, an expiry and an
-  assigned role or custom role; editors granted the `invite.*` permissions
-  manage their own codes and can only hand out a plain member account or what
-  they hold themselves: no permission or category beyond their own),
-  **Sessions** (every active session, end one, sign everyone out, daily
-  automatic sign-out of users and editors at an hour of the site time zone).
-  The account hierarchy applies throughout: a plain administrator neither sees
-  the addresses of nor signs out owners, superusers and other administrators,
-  and the automatic sign-out, which any administrator may set, leaves all
-  three signed in.
-* **Site settings** (`/admin/settings`): name, time zone, public mode (with
-  end date and message), open sign-up (with end date), approval of sign-ups
-  (and how long pending/denied sign-ups are kept), maintenance mode and
-  message, one session per account, bot protection, whether suspended users
-  may delete their account, two-step verification required of administrators
-  (owners and superusers only), the app chooser after sign-in, the introduction
-  and tour for new members, upload rules and quotas, draft expiry, PDF and
-  Markdown export, page builder, profile contribution chart.
-* **Appearance**: dark and light colour themes, default theme, favicon
+The menu groups the pages as **People and permissions** (users, roles,
+invite codes, sessions, account merges, profile fields, badges, temporary
+items), **Content** (announcements, custom pages, proposed edits, pending
+deletions, reservations, page governance, documentation, bulk delete and
+export), **Features** (plugins, chats, assessments, read aloud, REST API,
+federation), **Appearance** (appearance, languages, BM mode) and **System**
+(site settings, notifications, audit log, site migration, server).
+
+* **Roles** (`/admin/roles`): the defaults of the base roles User and Editor
+  (what everyone with the role may do) and the custom roles; see
+  [permissions](permissions.md). **Invite codes** (with a number of uses, an
+  expiry and an assigned role or custom role, honoured with open sign-up too;
+  editors granted the `invite.*` permissions manage their own codes and can
+  only hand out a plain member account or what they hold themselves: no
+  permission or category beyond their own), **Sessions** (every active
+  session, end one, sign everyone out). The account hierarchy applies
+  throughout: a plain administrator neither sees the addresses of nor signs
+  out owners, superusers and other administrators.
+* **Site settings** (`/admin/settings`), four tabs. **General**: name, time
+  zone, the introduction and tour for new members, draft expiry, PDF export.
+  **Access**: public mode (with end date and a notice shown when there is
+  one), open sign-up (with end date), approval of sign-ups, maintenance mode
+  and message. **Security**: how members sign in (with the hosting portal),
+  the app chooser after sign-in, one session per account, the daily sign-out
+  of users and editors at midnight site time (administrators, owners and
+  superusers stay signed in), bot protection, whether suspended users may
+  delete their account, two-step verification required of administrators
+  (owners and superusers only). **Uploads**: rules and daily quotas.
+* **Appearance**: default theme, the main colour of the dark and the light
+  theme (a theme file sets the whole palette), favicon
   (the mascot's banana in one of eight colours, or uploaded), theme export
   and import, and the [mascot](#mascot)'s sunglasses for every account.
 * **Languages**: the interface ships in English, Italian and German, all
   three switched on; upload further languages as JSON files (or one for a
   built-in language, which overrides its strings until removed), switch them
-  on and off, choose the default.
+  on and off, choose the default (texts a language lacks come from English).
 * **Documentation**: add the built-in user guide (full or simplified,
   English, Italian or German) as a category of pages, or download it as
   Markdown. Replacing it (here or in the onboarding wizard) deletes the pages
@@ -1079,8 +1077,8 @@ Notifications** (`/admin/notifications`):
   account settings and did not turn the emails off; everyone can opt out in
   **Settings → Email and notifications** or with the link in each email;
 * when: **immediately** for each new request, a **digest** when new requests
-  arrive but at most every N minutes, or a **daily summary** at a chosen hour
-  (site time zone) while anything is waiting;
+  arrive but at most once an hour, or a **daily summary** at 08:00 (site time
+  zone) while anything is waiting;
 * decisions: optionally, people are emailed when their own request is
   approved or denied (a person waiting for approval can leave an address on
   the "account pending" page);

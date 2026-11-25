@@ -11,7 +11,8 @@ from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.kanban import filters, service, store
 from bananawiki.wiki.features.kanban.fields import KanbanError
 
-from .test_kanban import as_client, board_id_from, columns, new_ticket, set_settings
+from .access_support import members_see
+from .test_kanban import as_client, board_id_from, columns, new_ticket
 
 EVENTS = ("kanban.board.created", "kanban.board.updated", "kanban.board.deleted", "kanban.ticket.created",
           "kanban.ticket.updated", "kanban.ticket.moved", "kanban.ticket.deleted", "kanban.comment.created")
@@ -39,9 +40,9 @@ def test_board_and_ticket_events_carry_rows_and_actor(admin_client, admin, recei
 
     received.clear()
     admin_client.post(f"/kanban/{board}/edit", data={"title": "Launch 2", "description": ""})
-    admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "shared"})
+    admin_client.post(f"/kanban/{board}/share", data={"action": "set_visibility", "visibility": "members"})
     assert names(received) == ["kanban.board.updated", "kanban.board.updated"]
-    assert received[0][1]["board"]["title"] == "Launch 2" and received[1][1]["board"]["visibility"] == "shared"
+    assert received[0][1]["board"]["title"] == "Launch 2" and received[1][1]["board"]["visibility"] == "members"
 
     cols = columns(admin_client, board)
     received.clear()
@@ -170,9 +171,9 @@ def test_service_calls_outside_views_emit_with_their_actor(app, admin, received)
 
 @pytest.fixture
 def filtered_board(app, admin_client, db, make_user):
-    set_settings(db, kanban_access="all")
     bob = make_user("bob")
     board = board_id_from(admin_client.post("/kanban/create", data={"title": "Filters"}))
+    members_see(db)  # before assigning: tickets are only assigned to people who reach the board
     cols = columns(admin_client, board)
     with app.test_request_context(), connection_scope():
         today = filters.site_today()

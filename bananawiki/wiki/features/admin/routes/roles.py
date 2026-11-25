@@ -33,7 +33,7 @@ def _editor(role: dict[str, Any] | None, form: custom_roles.RoleForm | None = No
     elif role is not None:
         values = role
     else:
-        values = {"name": "", "description": "", "base_role": "user", "keys": perms.defaults("user"),
+        values = {"name": "", "description": "", "base_role": "user", "keys": auth.role_defaults("user"),
                   "read_restricted": False, "read_ids": frozenset(), "write_restricted": False,
                   "write_ids": frozenset()}
     editor_only = {key for key, p in perms.CATALOGUE.items() if p.editor_only}
@@ -53,7 +53,32 @@ def _editor(role: dict[str, Any] | None, form: custom_roles.RoleForm | None = No
 @bp.get("/admin/roles")
 @auth.admin_required
 def roles():
-    return render_template("admin/roles.html", roles=custom_roles.list_roles())
+    return render_template("admin/roles.html", base_roles=custom_roles.base_roles(), roles=custom_roles.list_roles())
+
+
+@bp.route("/admin/roles/base/<role>", methods=["GET", "POST"])
+@auth.admin_required
+def edit_base_role(role: str):
+    """The defaults of a base role: what its members may do without a custom role or individual permissions."""
+    if role not in perms.BASE_ROLES:
+        abort(404)
+    if request.method == "POST":
+        try:
+            if request.form.get("action") == "reset":
+                custom_roles.reset_base_role(role, actor_id=actor()["id"])
+                auth.flash_t("admin.roles.base_reset", "success")
+            else:
+                custom_roles.save_base_role(role, request.form.getlist("permissions"), actor_id=actor()["id"])
+                auth.flash_t("admin.roles.base_saved", "success")
+        except AccountError as error:
+            refuse(error)
+        auth.forget_role_defaults()
+        return redirect(url_for("admin.edit_base_role", role=role))
+    return render_template(
+        "admin/base_role_edit.html", role=role, keys=auth.role_defaults(role), groups=perms.grouped_for(role),
+        builtin=perms.builtin_defaults(role),
+        changed=any(row["role"] == role and row["changed"] for row in custom_roles.base_roles()),
+    )
 
 
 @bp.route("/admin/roles/create", methods=["GET", "POST"])

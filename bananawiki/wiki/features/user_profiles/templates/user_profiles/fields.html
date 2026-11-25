@@ -18,11 +18,13 @@
   <li aria-current="page">{{ t('profiles.fields.title') }}</li>
 </ol></nav>
 {% endif %}
-<header class="page-header"><h1>{{ t('profiles.fields.title') }}</h1>
-  <p class="page-header__meta">@{{ target.username }}</p></header>
+<header class="page-header{% if definitions %} page-header--save{% endif %}"><h1>{{ t('profiles.fields.title') }}</h1>
+  <p class="page-header__meta">@{{ target.username }}</p>
+  <div class="page-header__actions"><a class="btn" href="{{ back }}">{{ t('common.back') }}</a>
+    {%- if definitions %}<button class="btn btn--primary" type="submit" form="profile-fields-form">{{ t('common.save') }}</button>{% endif %}</div></header>
 <section class="card{% if not admin_view %} profiles-fields-card{% endif %}">
   {% if definitions %}
-  <form method="post" action="{{ action }}" class="form">
+  <form method="post" action="{{ action }}" class="form" id="profile-fields-form">
     {{ forms.csrf() }}
     <p class="hint">{{ t('profiles.fields.help_admin', user=target.username) if admin_view else t('profiles.fields.help') }}</p>
     {% for field in definitions %}
@@ -39,10 +41,6 @@
           <span>{{ t('profiles.fields.visible_admin') if admin_view else t('profiles.fields.visible') }}<span class="visually-hidden">: {{ field.label }}</span></span></label>
       </div>
     {% endfor %}
-    <div class="btn-row">
-      <button class="btn btn--primary" type="submit">{{ t('common.save') }}</button>
-      <a class="btn" href="{{ back }}">{{ t('common.back') }}</a>
-    </div>
   </form>
   {% else %}
   <p class="muted">{{ t('profiles.fields.none_defined') }}</p>

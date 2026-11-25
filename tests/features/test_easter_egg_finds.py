@@ -347,3 +347,37 @@ def test_the_switches_never_overwrite_a_list_1_4_left_until_it_is_imported(app, 
     db.execute("UPDATE site_settings SET easter_egg_configs = '{\"version\":1,\"eggs\":[]}'")
     admin_client.post("/admin/appearance/easter-eggs", data={"egg_sunglasses": "1"})
     assert json.loads(db.scalar("SELECT easter_eggs FROM site_settings")) == {"sunglasses": 1, "konami": 0, "peek": 0}
+
+
+def test_the_appearance_pages_save_refuses_a_wrong_list_and_stores_nothing(admin_client, db):
+    """The list goes with Appearance's one Save: refused, the colours are not stored either and the page
+    shows what was sent, the colours too."""
+    from .test_site_admin_appearance import colors_form
+
+    wrong = {"version": 1, "eggs": [{**_egg("bad"), "keys": ["x"]}]}
+    switches_before = db.scalar("SELECT easter_eggs FROM site_settings")
+    response = admin_client.post("/admin/appearance/colors", data={
+        **colors_form(primary_color="#abcdef"), "mascot_eggs": "1", "egg_konami": "1",
+        "easter_egg_configs": json.dumps(wrong)})
+    assert response.status_code == 400
+    page = response.get_data(as_text=True)
+    assert "Easter egg 1 · Key sequence: needs 2 to 32 keys" in page
+    assert _list_value(page) == wrong
+    assert 'value="#abcdef"' in page, "the colours as typed"
+    assert re.search(r'name="egg_sunglasses" value="1" form=', page), "the switches as sent: sunglasses off"
+    assert db.scalar("SELECT easter_egg_configs FROM site_settings") is None
+    assert db.scalar("SELECT primary_color FROM site_settings") != "#abcdef"
+    assert db.scalar("SELECT easter_eggs FROM site_settings") == switches_before
+
+
+def test_the_appearance_pages_save_stores_the_list(admin_client, db):
+    from .test_site_admin_appearance import colors_form
+
+    party = _egg("party", keys=["P", "a"])
+    response = admin_client.post("/admin/appearance/colors", data={
+        **colors_form(), "mascot_eggs": "1", "egg_sunglasses": "1", "egg_konami": "1", "egg_peek": "1",
+        "easter_egg_configs": json.dumps({"version": 1, "eggs": [party]})})
+    assert response.status_code == 302
+    stored = json.loads(db.scalar("SELECT easter_egg_configs FROM site_settings"))
+    assert [egg["id"] for egg in stored["eggs"]] == ["party"]
+    assert db.scalar("SELECT COUNT(*) FROM audit_log WHERE action = 'mascot.easter_egg_list_changed'") == 1

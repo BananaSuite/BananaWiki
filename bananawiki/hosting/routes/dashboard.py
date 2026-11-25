@@ -502,8 +502,11 @@ def bulk_delete():
 @bp.get("/instances/<instance_id>/collaborators")
 def collaborators_page(instance_id: str):
     inst = instance_for(instance_id, "manage_collaborators")
-    return render_template("hosting/dashboard/collaborators.html", instance=inst,
-                           collaborators=collaborators.list_for(inst["id"]),
+    viewer = account()
+    privileged = collaborators.acts_as_admin(viewer) or inst["account_id"] == viewer["id"]
+    members = [{**c, "editable": privileged or c["role"] != "full_access", "is_viewer": c["account_id"] == viewer["id"]}
+               for c in collaborators.list_for(inst["id"])]
+    return render_template("hosting/dashboard/collaborators.html", instance=inst, collaborators=members,
                            transfer=collaborators.pending_transfer(inst["id"]),
                            permissions=collaborators.PERMISSIONS,
                            is_admin_view=bool(account()["is_admin"]) and inst["account_id"] != account()["id"],
@@ -541,6 +544,30 @@ def update_collaborator(instance_id: str, collab_account_id: str):
         flash(t("hosting.collaborators.updated"), "success")
     except ServiceError as error:
         flash_error(error)
+    return _collab_back(instance_id)
+
+
+@bp.post("/instances/<instance_id>/collaborators/save")
+@rate_limit(15)
+def save_collaborators(instance_id: str):
+    """The page's one Save: every listed collaborator's access (``role-<id>``, ``permissions-<id>``).
+
+    Each is saved as by ``…/<id>/update`` (which still saves one): the same access writes nothing, and one
+    that is refused is reported without holding up the others.
+    """
+    inst = instance_for(instance_id, "manage_collaborators")
+    if _locked(inst):
+        return _collab_back(instance_id)
+    failed = False
+    for member_id in list(dict.fromkeys(request.form.getlist("members")))[:200]:
+        try:
+            collaborators.update(inst, account(), member_id, request.form.get(f"role-{member_id}", "custom"),
+                                 request.form.getlist(f"permissions-{member_id}"))
+        except ServiceError as error:
+            flash_error(error)
+            failed = True
+    if not failed:
+        flash(t("hosting.collaborators.updated"), "success")
     return _collab_back(instance_id)
 
 

@@ -74,7 +74,6 @@ def test_session_cookie_and_content_survive(legacy):
 def test_password_and_api_token_survive(legacy):
     app, _, creds = legacy
     db = _db(app)
-    db.execute("UPDATE site_settings SET api_service_enabled = 1")
     db.execute("UPDATE plugins SET enabled = 1 WHERE id = 'api_service'")
     db.execute("UPDATE users SET api_access_enabled = 1, onboarding_required = 0")
     response = app.test_client().get("/api/v1/pages", headers={"Authorization": "Bearer " + creds["token"]})

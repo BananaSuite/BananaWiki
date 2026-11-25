@@ -17,7 +17,7 @@ import pytest
 
 from bananawiki.hosting import email, notifications
 from bananawiki.hosting.db import connection_scope
-from bananawiki.hosting.migrations import v9_email_policy
+from bananawiki.hosting.migrations import bootstrap_for, v9_email_policy, v14_signup_approval
 
 from .hosting_support import PASSWORD
 
@@ -199,7 +199,7 @@ def test_addresses_shared_before_the_switch_keep_working(portal, query, make_acc
     make_account("second", email="team@example.org")
     _settings(query, email_shared=0)
     page = _signed_in(portal, login, admin).get("/admin/settings").get_data(as_text=True)
-    assert "1 address is used by more than one account" in page
+    assert "1 address is shared by several accounts" in page
     client = _signed_in(portal, login, first)
     client.post("/account", data={"username": "first-renamed", "email": "team@example.org",
                                   "current_password": PASSWORD})
@@ -369,6 +369,78 @@ def test_the_sign_up_mode_no_longer_undoes_the_approval_box(portal, query, make_
     assert 'name="hosting_activation_required" value="1" checked' in page
 
 
+def test_approval_is_a_box_beside_the_mode_not_a_mode(portal, login, admin):
+    page = _signed_in(portal, login, admin).get("/admin/settings").get_data(as_text=True)
+    modes = [chunk.split('"', 1)[0] for chunk in page.split('name="signup_mode" value="')[1:]]
+    assert modes == ["open", "invite", "closed"]
+    assert page.count('name="hosting_activation_required"') == 1
+
+
+@pytest.mark.parametrize("mode", ["invite", "open"])
+def test_approval_combines_with_open_and_invite(portal, query, login, admin, mode):
+    client = _signed_in(portal, login, admin)
+    _save(client, "save_signups", signup_mode=mode, hosting_activation_required="1")
+    assert query("SELECT signup_mode, hosting_activation_required FROM hosting_settings", one=True) == {
+        "signup_mode": mode, "hosting_activation_required": 1}
+    signup = portal.test_client().get("/signup").get_data(as_text=True)
+    assert "administrator reviews new accounts" in signup
+    assert ('name="invite_code"' in signup) == (mode == "invite")
+
+
+@pytest.mark.parametrize("route", ["/admin/signup-mode", "/admin/settings"])
+def test_the_old_approval_mode_still_means_open_with_approval(portal, query, login, admin, route):
+    client = _signed_in(portal, login, admin)
+    data = {"signup_mode": "approval"}
+    if route == "/admin/settings":
+        data["action"] = "save_signups"
+    client.post(route, data=data)
+    assert query("SELECT signup_mode, hosting_activation_required FROM hosting_settings", one=True) == {
+        "signup_mode": "open", "hosting_activation_required": 1}
+
+
+@pytest.mark.parametrize(("stored", "expected"), [
+    (("approval", 0), ("open", 1)), (("approval", 1), ("open", 1)),
+    (("invite", 1), ("invite", 1)), (("open", 0), ("open", 0)), (("closed", 0), ("closed", 0)),
+])
+def test_upgrading_turns_the_approval_mode_into_open_with_approval(stored, expected):
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE hosting_settings (id INTEGER PRIMARY KEY, signup_mode TEXT, "
+                 "hosting_activation_required INTEGER)")
+    conn.execute("INSERT INTO hosting_settings VALUES (1, ?, ?)", stored)
+    v14_signup_approval.upgrade(conn)
+    assert conn.execute("SELECT signup_mode, hosting_activation_required FROM hosting_settings").fetchone() == expected
+
+
+@pytest.mark.parametrize(("env", "expected"), [("approval", ("open", 1)), ("invite", ("invite", 0)),
+                                               ("bogus", ("open", 0))])
+def test_a_new_platform_reads_the_old_approval_default(env, expected):
+    conn = sqlite3.connect(":memory:")
+    bootstrap_for(env)(conn)
+    assert conn.execute("SELECT signup_mode, hosting_activation_required FROM hosting_settings").fetchone() == expected
+
+
+@pytest.mark.parametrize(("policy", "columns"), [("owners", (0, 0)), ("auto", (1, 1)), ("ask", (1, 0))])
+def test_each_wiki_feature_policy_is_one_choice(portal, query, login, admin, policy, columns):
+    client = _signed_in(portal, login, admin)
+    _save(client, "save_wiki_features", public_access_policy=policy, page_builder_policy=policy)
+    row = query("SELECT forbid_non_admin_public_wikis, auto_approve_public_access_requests, "
+                "forbid_non_admin_page_builder, auto_approve_page_builder_requests FROM hosting_settings", one=True)
+    assert tuple(row.values()) == columns * 2
+    page = client.get("/admin/settings").get_data(as_text=True)
+    assert f'name="public_access_policy" value="{policy}" checked' in page
+
+
+def test_scripts_may_still_send_the_two_feature_boxes(portal, query, login, admin):
+    client = _signed_in(portal, login, admin)
+    _save(client, "save_wiki_features", forbid_non_admin_public_wikis="1", auto_approve_public_access_requests="1")
+    row = query("SELECT forbid_non_admin_public_wikis, auto_approve_public_access_requests, "
+                "forbid_non_admin_page_builder FROM hosting_settings", one=True)
+    assert tuple(row.values()) == (1, 1, 0)
+    assert _save(client, "save_wiki_features", public_access_policy="bogus").status_code in (200, 302)
+    assert query("SELECT forbid_non_admin_page_builder FROM hosting_settings", one=True)[
+        "forbid_non_admin_page_builder"] == 0
+
+
 @pytest.mark.parametrize(("choice", "status"), [("keep", "pending"), ("approve", "approved")])
 def test_ending_approval_asks_what_happens_to_waiting_accounts(portal, query, make_account, login, admin,
                                                                choice, status):
@@ -401,8 +473,8 @@ def test_misplaced_switches_moved_to_their_sections(portal, login, admin):
 
     assert 'name="email_flag_block_reentry"' in section("save_email")
     assert 'name="owner_renewal_enabled"' in section("save_lifetime")
-    assert 'name="forbid_non_admin_public_wikis"' in section("save_wiki_features")
-    assert 'name="auto_approve_page_builder_requests"' in section("save_wiki_features")
+    assert 'name="public_access_policy"' in section("save_wiki_features")
+    assert 'name="page_builder_policy"' in section("save_wiki_features")
     assert 'name="signup_mode"' in section("save_signups")
 
 
@@ -443,3 +515,15 @@ def test_operators_can_pause_email_from_the_command_line(portal, query, capsys):
     assert cli.main(["settings", "email-pause", "off"], app=portal) == 0
     assert query("SELECT email_paused FROM hosting_settings", one=True)["email_paused"] == 0
     assert "Email is sent again." in capsys.readouterr().out
+
+
+def test_a_new_portal_does_not_ask_for_an_address_at_sign_up(portal, query, web):
+    """One default for the address at sign-up: not asked (the stored value of a new portal and the accessor's)."""
+    assert query("SELECT signup_email FROM hosting_settings", one=True)["signup_email"] == "off"
+    with portal.test_request_context("/"), connection_scope():
+        from bananawiki.hosting import settings as hosting_settings
+
+        assert hosting_settings.DEFAULT_SIGNUP_EMAIL == "off"
+        hosting_settings.load()["signup_email"] = "unknown"
+        assert hosting_settings.signup_email() == "off"
+    assert 'name="email"' not in web.get("/signup").get_data(as_text=True)

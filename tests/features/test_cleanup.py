@@ -133,7 +133,7 @@ def test_documentation_suggests_the_default_language(admin_client, db):
     assert '<option value="it" selected>' in page
     db.execute("UPDATE site_settings SET interface_language = 'fr'")
     page = admin_client.get("/admin/documentation").get_data(as_text=True)
-    assert '<option value="de" selected>' in page, "no French guide: the fallback chosen under Languages"
+    assert '<option value="en" selected>' in page, "no French guide: English, the fallback of every wiki"
 
 
 # Language: chosen on the Account tab; the display page keeps it
@@ -179,12 +179,11 @@ def test_federation_switched_off_on_the_server_is_shown_as_off(app_factory, logi
     assert "Off (server setting)" not in page and 'data-id="federation"' in page
 
 
-def test_the_rest_api_row_says_when_the_api_itself_is_off(app, admin_client, db):
+def test_the_rest_api_has_one_switch(app, admin_client, db):
     set_feature(app, "api_service", True)
     page = admin_client.get("/admin/plugins").get_data(as_text=True)
-    assert 'href="/admin/api-service"' in page and "The API is turned off" in page
-    db.execute("UPDATE site_settings SET api_service_enabled = 1")
-    assert "The API is turned off" not in admin_client.get("/admin/plugins").get_data(as_text=True)
+    assert "The API is turned off" not in page
+    assert 'name="enabled"' not in admin_client.get("/admin/api-service").get_data(as_text=True)
 
 
 # The sidebar keeps related apps together

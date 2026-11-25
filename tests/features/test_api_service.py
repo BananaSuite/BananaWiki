@@ -77,10 +77,10 @@ def test_legacy_iso_expiry_still_works(api_app, client, db, admin):
     assert call(client, "GET", "/pages", token).status_code == 200
 
 
-def test_api_off_answers_503_and_plugin_off_404(api_app, client, db, admin):
+def test_the_plugin_switch_is_the_apis_one_switch(api_app, client, db, admin):
     token = issue(api_app, admin)
-    db.execute("UPDATE site_settings SET api_service_enabled = 0")
-    assert call(client, "GET", "/pages", token).status_code == 503
+    db.execute("UPDATE site_settings SET api_service_enabled = 0")  # retired: changes nothing
+    assert call(client, "GET", "/pages", token).status_code == 200
     set_feature(api_app, "api_service", False)
     assert call(client, "GET", "/pages", token).status_code == 404
 
@@ -141,9 +141,9 @@ def test_admin_scopes_on_a_members_token_do_not_help(api_app, client, make_user)
 # Rate limit and audit
 
 
-def test_rate_limit_per_account(api_app, client, db, make_user):
+def test_rate_limit_per_account(api_app, client, db, make_user, monkeypatch):
     member = make_user("member", api_access_enabled=1)
-    db.execute("UPDATE site_settings SET api_service_rate_limit = 2")
+    monkeypatch.setenv("BW_API_RATE_LIMIT", "2")  # 60 a minute unless the operator says otherwise
     first, second = issue(api_app, member), issue(api_app, member)
     started = time.monotonic()
     assert call(client, "GET", "/pages", first).status_code == 200
@@ -253,8 +253,8 @@ def test_members_cannot_mint_admin_scopes(api_app, client, make_user):
     assert response.status_code == 403 and response.json["code"] == "admin_scope_forbidden"
 
 
-def test_token_quota_and_own_revocation(api_app, client, db, admin, make_user):
-    db.execute("UPDATE site_settings SET api_service_max_tokens_per_user = 2")
+def test_token_quota_and_own_revocation(api_app, client, db, admin, make_user, monkeypatch):
+    monkeypatch.setenv("BW_API_MAX_TOKENS_PER_USER", "2")
     token = issue(api_app, admin, ["tokens", "pages"])
     assert call(client, "POST", "/tokens", token, json={}).status_code == 201
     assert call(client, "POST", "/tokens", token, json={}).json["code"] == "token_limit"
@@ -432,18 +432,15 @@ def test_token_page_refuses_past_expiry_and_members_without_access(api_app, clie
     assert db.scalar("SELECT COUNT(*) FROM api_service__tokens") == 0
 
 
-def test_admin_page_is_for_admins_and_clamps_settings(api_app, client, db, login, admin, make_user):
+def test_admin_page_is_for_admins(api_app, client, db, login, admin, make_user):
     member = make_user("member")
     login(client, member)
     assert client.get("/admin/api-service").status_code in (302, 403)
     client.post("/logout")
     login(client, admin)
     assert client.get("/admin/api-service").status_code == 200
-    client.post("/admin/api-service/settings", data={"enabled": "1", "rate_limit": "999999",
-                                                     "admin_rate_limit": "0", "max_tokens_per_user": "3"})
-    row = db.one("SELECT * FROM site_settings")
-    assert (row["api_service_rate_limit"], row["api_service_admin_rate_limit"],
-            row["api_service_max_tokens_per_user"]) == (tokens.RATE_LIMIT_BOUNDS[1], 1, 3)
+    page = client.get("/admin/api-service").get_data(as_text=True)
+    assert 'name="rate_limit"' not in page and "60 requests a minute" in page  # set by the operator, if at all
     client.post(f"/admin/api-service/users/{member['id']}/toggle-access")
     assert db.scalar("SELECT api_access_enabled FROM users WHERE id = ?", (member["id"],)) == 1
 

@@ -161,11 +161,30 @@ def normalize_timestamps(conn: sqlite3.Connection) -> None:
             )
 
 
+#: The base roles' default permissions as they were up to schema version 22, which the 1.4
+#: editor restrictions are merged with. Version 23 translates them into the later model, so
+#: they are frozen here rather than read from the current catalogue.
+_DEFAULTS_AT_VERSION_22 = {
+    "user": (
+        "assessment.view", "attachment.view", "canvas.view", "category.view_all", "chat.create_group", "chat.dm",
+        "chat.group", "chat.upload", "contribution.propose", "history.view", "kanban.view", "page.view_all",
+        "profile.edit_own", "profile.view", "search.pages", "search.users",
+    ),
+    "editor": (
+        "assessment.manage", "assessment.view", "attachment.delete_own", "attachment.upload", "attachment.view",
+        "canvas.create", "canvas.view", "category.create", "category.delete", "category.edit",
+        "category.manage_sequential", "category.reorder", "category.view_all", "chat.create_group", "chat.dm",
+        "chat.group", "chat.upload", "draft.create", "draft.delete_own", "draft.view_own", "history.view",
+        "kanban.create", "kanban.view", "page.create", "page.edit_all", "page.edit_metadata", "page.view_all",
+        "page.view_deindexed", "profile.edit_own", "profile.view", "search.pages", "search.users",
+        "tag.edit_custom", "tag.edit_difficulty",
+    ),
+}
+
+
 def merge_legacy_editor_acl(conn: sqlite3.Connection) -> None:
     if not (table_exists(conn, "editor_category_access") and table_exists(conn, "user_category_access")):
         return
-    from ..permissions import defaults
-
     rows = tuples(
         conn,
         "SELECT e.user_id, u.role FROM editor_category_access e JOIN users u ON u.id = e.user_id "
@@ -173,7 +192,7 @@ def merge_legacy_editor_acl(conn: sqlite3.Connection) -> None:
         "AND NOT EXISTS (SELECT 1 FROM user_category_access a WHERE a.user_id = e.user_id)",
     )
     for user_id, role in rows:
-        for key in sorted(defaults(role)):
+        for key in _DEFAULTS_AT_VERSION_22.get(role, ()):
             conn.execute(
                 "INSERT OR IGNORE INTO user_permissions (user_id, permission_key) VALUES (?, ?)", (user_id, key)
             )

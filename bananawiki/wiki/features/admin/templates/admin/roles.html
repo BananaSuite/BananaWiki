@@ -6,6 +6,27 @@
   <div class="page-header__actions"><a class="btn btn--primary" href="{{ url_for('admin.create_role') }}">{{ t('admin.roles.create') }}</a></div>
 </header>
 <p class="muted">{{ t('admin.roles.intro') }}</p>
+<h2>{{ t('admin.roles.base_title') }}</h2>
+<div class="table-wrap">
+  <table class="table table--stack">
+    <thead><tr>
+      <th scope="col">{{ t('common.name') }}</th>
+      <th scope="col">{{ t('admin.roles.permissions') }}</th>
+      <th scope="col">{{ t('admin.roles.base_users') }}</th>
+    </tr></thead>
+    <tbody>
+    {% for base in base_roles %}
+      <tr>
+        <td><a class="text-link" href="{{ url_for('admin.edit_base_role', role=base.role) }}">{{ t('admin.role.' ~ base.role) }}</a>
+          {% if base.changed %}<span class="badge">{{ t('admin.roles.base_changed') }}</span>{% endif %}</td>
+        <td data-label="{{ t('admin.roles.permissions') }}">{{ base.permission_count }}</td>
+        <td data-label="{{ t('admin.roles.base_users') }}">{{ base.user_count }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<h2>{{ t('admin.roles.custom_title') }}</h2>
 {% if roles %}
 <div class="table-wrap">
   <table class="table table--stack">

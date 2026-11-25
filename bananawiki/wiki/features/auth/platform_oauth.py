@@ -34,6 +34,23 @@ Configured by ``BW_PLATFORM_OAUTH_*`` (see ``config.platform_oauth``). The rules
 * Platform sign-in confirms a local link with the portal before trusting it
   (:func:`confirm_link`): the portal drops its links at once, the wiki only
   when the sign-out job runs.
+* The portal tells when its sign-in happened (``auth_time``) and what it used
+  (``amr``). Confirming a sensitive change with the portal (:mod:`.reauth`)
+  asks for a fresh sign-in (``prompt=login``, ``max_age=0``) and accepts only
+  an ``auth_time`` from after the confirmation started (60 seconds of clock
+  difference allowed); a portal that does not send it never confirms.
+* Sign-up from the wiki (``authorize_url(create=True)``, hosting-only mode): the portal's
+  ``prompt=create`` opens its sign-up form, and the state remembers that the
+  account was created for this wiki, so the first sign-in creates the wiki
+  account at once, named like the portal account, under the same sign-up
+  policy (the connect page takes over when that is not possible). The sign-in
+  page offers it only while the portal's metadata says sign-up is ``open`` or
+  ``invite`` (:func:`portal_signup_open`, remembered a few minutes; a portal
+  that does not answer hides it).
+* A hosting administrator acting as a portal account (the portal's ``act``)
+  signs in to the wiki account linked to it, never links or creates one, and
+  only while the wiki allows it (``platform_allow_acting``): see
+  :func:`acting_from`.
 """
 
 from __future__ import annotations
@@ -45,6 +62,8 @@ import json
 import logging
 import secrets
 import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 
@@ -64,6 +83,11 @@ INVITE_KEY = "_platform_oauth_invite"
 STATE_TTL_SECONDS = 600
 MAX_STATES = 5
 MAX_RESPONSE_BYTES = 256 * 1024
+# What the portal said about sign-up is remembered this long (an answer that failed: a minute).
+SIGNUP_STATE_SECONDS = 300
+SIGNUP_STATE_RETRY_SECONDS = 60
+SIGNUP_STATE_TIMEOUT = 3.0
+METADATA_PATH = "/.well-known/oauth-authorization-server"
 REQUIRED = ("client_id", "client_secret", "authorize_url", "token_url", "userinfo_url", "portal_base")
 
 
@@ -100,13 +124,21 @@ def _challenge(verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
+_CALLBACKS = {"link": "auth.platform_oauth_link_callback", "confirm": "auth.platform_oauth_confirm_callback"}
+
+
 def redirect_uri(purpose: str) -> str:
-    endpoint = "auth.platform_oauth_link_callback" if purpose == "link" else "auth.platform_oauth_callback"
-    return url_for(endpoint, _external=True)
+    return url_for(_CALLBACKS.get(purpose, "auth.platform_oauth_callback"), _external=True)
 
 
-def authorize_url(purpose: str, *, next_url: str = "", user_id: str | None = None) -> str:
-    """Remember a new state in the session and build the portal's authorize URL."""
+def authorize_url(purpose: str, *, next_url: str = "", user_id: str | None = None, fresh: bool = False,
+                  create: bool = False, bound: dict[str, Any] | None = None) -> str:
+    """Remember a new state in the session and build the portal's authorize URL.
+
+    *fresh* asks the portal for a new sign-in (``prompt=login``, ``max_age=0``); *create* for its sign-up
+    form (``prompt=create``), and the state remembers it; *bound* adds what the callback must find
+    unchanged (the session, the pending change).
+    """
     cfg = config()
     assert cfg is not None
     now = time.time()
@@ -115,7 +147,8 @@ def authorize_url(purpose: str, *, next_url: str = "", user_id: str | None = Non
     while len(states) >= MAX_STATES:
         states.pop(min(states, key=lambda key: states[key]["at"]))
     state = secrets.token_urlsafe(24)
-    states[state] = {"purpose": purpose, "next": next_url, "uid": user_id, "at": now}
+    states[state] = {"purpose": purpose, "next": next_url, "uid": user_id, "at": now, **(bound or {}),
+                     **({"create": True} if create else {})}
     session[STATE_KEY] = states
     query = urlencode({
         "response_type": "code",
@@ -124,6 +157,8 @@ def authorize_url(purpose: str, *, next_url: str = "", user_id: str | None = Non
         "state": state,
         "code_challenge": _challenge(_verifier(state)),
         "code_challenge_method": "S256",
+        **({"prompt": "login", "max_age": "0"} if fresh else {}),
+        **({"prompt": "create"} if create and not fresh else {}),
     })
     separator = "&" if "?" in cfg["authorize_url"] else "?"
     return f"{cfg['authorize_url']}{separator}{query}"
@@ -168,7 +203,8 @@ def _client_auth(cfg: dict[str, str]) -> dict[str, str]:
 
 
 def _call(method: str, url: str, *, form: dict[str, Any] | None = None, json_body: Any = None,
-          headers: dict[str, str] | None = None, client_auth: bool = False) -> tuple[int, Any]:
+          headers: dict[str, str] | None = None, client_auth: bool = False,
+          timeout: float | None = None) -> tuple[int, Any]:
     """One server-to-server call to the portal; returns (status, parsed JSON or None)."""
     cfg = config()
     assert cfg is not None
@@ -186,7 +222,8 @@ def _call(method: str, url: str, *, form: dict[str, Any] | None = None, json_bod
     schemes = _schemes(cfg["portal_base"]) if private else ("https",)
     try:
         response = http.request(method, url, headers=sent, body=body, max_bytes=MAX_RESPONSE_BYTES,
-                                allow_private=private, schemes=schemes)
+                                allow_private=private, schemes=schemes,
+                                **({"timeout": timeout, "total_timeout": timeout * 2} if timeout else {}))
     except http.HttpError as error:
         raise OAuthError("auth.oauth.error.portal", str(error)) from error
     try:
@@ -194,6 +231,32 @@ def _call(method: str, url: str, *, form: dict[str, Any] | None = None, json_bod
     except (UnicodeDecodeError, ValueError):
         data = None
     return response.status, data
+
+
+def portal_signup_open() -> bool:
+    """Whether the portal takes new accounts (its metadata's ``signup`` is ``open`` or ``invite``).
+
+    Remembered for :data:`SIGNUP_STATE_SECONDS` per process; a portal that
+    does not answer, or does not say, counts as closed for a minute.
+    """
+    cfg = config()
+    if cfg is None:
+        return False
+    cache = current_app.extensions.setdefault("bananawiki.portal_signup", {})
+    now = time.monotonic()
+    if cache.get("until", 0) > now:
+        return bool(cache.get("open"))
+    answer = None
+    try:
+        status, data = _call("GET", cfg["portal_base"].rstrip("/") + METADATA_PATH, timeout=SIGNUP_STATE_TIMEOUT)
+        if status == 200 and isinstance(data, dict):
+            answer = data.get("signup")
+    except OAuthError as error:
+        log.info("The portal's sign-up state could not be read: %s", error)
+    known = answer in ("open", "invite", "closed")
+    cache.update(open=answer in ("open", "invite"),
+                 until=now + (SIGNUP_STATE_SECONDS if known else SIGNUP_STATE_RETRY_SECONDS))
+    return bool(cache["open"])
 
 
 def exchange_code(code: str, state: str, purpose: str) -> str:
@@ -213,8 +276,36 @@ def exchange_code(code: str, state: str, purpose: str) -> str:
     return token
 
 
-def fetch_profile(token: str) -> tuple[str, str]:
-    """(portal account id, portal username) for an access token."""
+@dataclass(frozen=True)
+class Identity:
+    """Who the portal signed in: ``sub`` and ``username``; ``auth_time`` (Unix seconds of the portal sign-in,
+    None when the portal does not say), ``amr``; ``act`` (``{"sub", "admin", "expires_at"}``) when a hosting
+    administrator acting as the account signed in."""
+
+    sub: str
+    username: str
+    auth_time: int | None = None
+    amr: tuple[str, ...] = ()
+    act: dict[str, Any] | None = None
+
+
+def _acting(data: dict[str, Any]) -> dict[str, Any] | None:
+    """The ``act`` and ``act_expires_at`` of a userinfo answer, checked; None without them."""
+    act, expires = data.get("act"), data.get("act_expires_at")
+    if act is None and expires is None:
+        return None
+    sub = act.get("sub") if isinstance(act, dict) else None
+    name = act.get("preferred_username", "") if isinstance(act, dict) else None
+    now = time.time()
+    if (not isinstance(sub, str) or not sub.strip() or len(sub) > 200 or not isinstance(name, str)
+            or type(expires) is not int or not now < expires <= now + 86400):
+        raise OAuthError("auth.oauth.error.portal", "userinfo with an invalid act")
+    return {"sub": sub.strip(), "admin": name.strip()[:200] or sub.strip(),
+            "expires_at": to_sql(datetime.fromtimestamp(expires, UTC))}
+
+
+def fetch_identity(token: str) -> Identity:
+    """Who an access token signed in, with the facts of the portal sign-in (see :class:`Identity`)."""
     cfg = config()
     assert cfg is not None
     status, data = _call("GET", cfg["userinfo_url"], headers={"Authorization": f"Bearer {token}"})
@@ -224,7 +315,30 @@ def fetch_profile(token: str) -> tuple[str, str]:
     username = str(data.get("username") or data.get("preferred_username") or "").strip()
     if not account_id or not username:
         raise OAuthError("auth.oauth.error.portal", "userinfo without sub/username")
-    return account_id[:200], username[:200]
+    auth_time = data.get("auth_time")
+    amr = data.get("amr")
+    return Identity(account_id[:200], username[:200], auth_time if type(auth_time) is int else None,
+                    tuple(str(item)[:20] for item in amr[:5]) if isinstance(amr, list) else (), _acting(data))
+
+
+def fetch_profile(token: str) -> tuple[str, str]:
+    """(portal account id, portal username) for an access token."""
+    identity = fetch_identity(token)
+    return identity.sub, identity.username
+
+
+def acting_refusal(identity: Identity) -> str | None:
+    """Why a hosting administrator acting as a portal account may not sign in here (a translation key), or
+    None (also when nobody acts)."""
+    from ... import settings
+
+    if identity.act is None:
+        return None
+    if not settings.get("platform_allow_acting"):
+        return "auth.acting.error.not_allowed"
+    if identity.act["sub"] == identity.sub:
+        return "auth.oauth.error.portal"
+    return None
 
 
 def _portal_link_status(user_id: str = "", *, account_id: str = "") -> dict[str, Any]:

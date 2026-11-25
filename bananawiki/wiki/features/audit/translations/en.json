@@ -1,4 +1,7 @@
 {
+  "audit.action.access_request.approved": "Edit access request approved",
+  "audit.action.access_request.created": "Edit access requested",
+  "audit.action.access_request.declined": "Edit access request declined",
   "audit.action.announcement.created": "Announcement created",
   "audit.action.announcement.deleted": "Announcement deleted",
   "audit.action.announcement.updated": "Announcement changed",
@@ -121,6 +124,10 @@
   "audit.action.bm_mode.everyone_changed": "BM mode changed for accounts by role",
   "audit.action.user.recovery_sign_in": "Signed in at the administrator recovery page",
   "audit.action.user.recovery_sign_in_failed": "Refused at the administrator recovery page",
+  "audit.action.user.acting_signin": "Hosting administrator signed in as the account",
+  "audit.action.user.reverified": "Confirmed with BananaWiki Hosting",
+  "audit.action.user.platform_linked": "Connected to BananaWiki Hosting",
+  "audit.action.user.platform_unlinked": "Disconnected from BananaWiki Hosting",
   "audit.col.action": "Action",
   "audit.col.actor": "By",
   "audit.col.details": "Details",
@@ -154,6 +161,7 @@
   "audit.detail.size": "Size",
   "audit.detail.title": "Title",
   "audit.detail.until": "Until",
+  "audit.detail.hosting_admin": "By hosting administrator",
   "audit.detail.username": "Username",
   "audit.detail.usernames": "Usernames",
   "audit.detail.uses": "Uses",
@@ -170,10 +178,6 @@
   "audit.nav": "Audit log",
   "audit.retention.current": "Entries are kept for {days} days.",
   "audit.retention.current_forever": "Entries are kept forever.",
-  "audit.retention.days": "Keep entries for (days)",
-  "audit.retention.hint": "Older entries are deleted once a day. 0 to keep them forever.",
-  "audit.retention.invalid": "Enter a number of days between {minimum} and {maximum}.",
-  "audit.retention.owner_only": "Only owners and superusers can change how long entries are kept.",
   "audit.retention.title": "Retention",
   "audit.system": "System",
   "audit.target.announcement": "Announcement",
@@ -194,5 +198,6 @@
   "audit.title": "Audit log",
   "audit.value.all": "All",
   "feature.audit.description": "Records sign-ins, account and role changes, deletions and site settings.",
-  "feature.audit.name": "Audit log"
+  "feature.audit.name": "Audit log",
+  "audit.retention.fixed": "The server's operator can change this (BW_AUDIT_RETENTION_DAYS)."
 }

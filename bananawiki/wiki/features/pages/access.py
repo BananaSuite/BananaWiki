@@ -30,10 +30,47 @@ def edit_blocked(page: dict[str, Any], user: dict[str, Any] | None = None) -> st
     return registry.intercept("page.edit_blocked", page=page, user=_user(user))
 
 
-def can_edit_metadata(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
-    """Change the title, address or category of *page*."""
+def why_not_edit(page: dict[str, Any], user: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    """Why *user*, who can read *page*, may not edit it: a translation key and its values."""
     user = _user(user)
-    return service.can_edit(page, user) and auth.has_permission("page.edit_metadata", user)
+    category_id = page.get("category_id")
+    if not auth.can_write_category(category_id, user):
+        if category_id is None:
+            return "pages.why.uncategorized", {}
+        category = categories.get(category_id)
+        return "pages.why.category", {"category": category["name"] if category else ""}
+    if auth.has_permission("page.edit_own", user) and not service.is_own(page, user):
+        return "pages.why.others", {}
+    return "pages.why.no_editing", {}
+
+
+def why_not_create(category_id: int | None, user: dict[str, Any] | None = None) -> tuple[str, dict[str, Any]]:
+    """Why *user* may not create a page in *category_id* (None: without a category, or anywhere)."""
+    user = _user(user)
+    if not auth.has_permission("page.create", user):
+        return "pages.why.no_creating", {}
+    if category_id is not None:
+        category = categories.get(category_id)
+        return "pages.why.create_category", {"category": category["name"] if category else ""}
+    if not can_create_somewhere(user):
+        return "pages.why.create_nowhere", {}
+    return "pages.why.create_uncategorized", {}
+
+
+def can_edit_metadata(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
+    """Change the title, address or category of *page*: its creator, or with ``page.edit_metadata``."""
+    user = _user(user)
+    if not service.can_edit(page, user):
+        return False
+    return auth.has_permission("page.edit_metadata", user) or service.is_own(page, user)
+
+
+def may_write_pages(user: dict[str, Any] | None = None) -> bool:
+    """Whether *user* may create or edit any page at all (the editor's helpers: previews, images)."""
+    user = _user(user)
+    if not user:
+        return False
+    return any(auth.has_permission(key, user) for key in ("page.create", "page.edit_own", "page.edit_all"))
 
 
 def can_deindex(page: dict[str, Any], user: dict[str, Any] | None = None) -> bool:
@@ -53,7 +90,7 @@ def can_create_somewhere(user: dict[str, Any] | None = None) -> bool:
         return False
     if auth.is_admin(user):
         return True
-    return auth.has_role("editor", user) and auth.has_permission("page.create", user) and bool(
+    return auth.has_permission("page.create", user) and bool(
         writable_category_ids(user) or auth.can_write_category(None, user)
     )
 

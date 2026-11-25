@@ -2,7 +2,9 @@
 
 Sign-up is possible with a valid invite code, or without one while open
 sign-up is active (``open_signup`` and, optionally, until
-``open_signup_until``). With ``approval_required`` the new account starts
+``open_signup_until``). An invite code given under open sign-up still counts:
+its role (or custom role) applies and a use is taken, so invites mean the same
+whether sign-up is open or not. With ``approval_required`` the new account starts
 ``pending`` and the request pipeline keeps it on the account-status page
 until an administrator approves it. The same rules apply to accounts created
 through the hosting portal's single sign-on.
@@ -48,13 +50,13 @@ def register(
         # Hash before taking the write lock: it is the slow part.
         password_hash = accounts.hash_password(accounts.validate_password(
             password, username=username, email=(extra or {}).get("email")))
-    needs_invite = invite_required()
-    if needs_invite and not invites.normalize(invite_code):
+    given = bool(invites.normalize(invite_code))
+    if invite_required() and not given:
         raise accounts.AccountError("auth.signup.error.invite_required")
     status = "pending" if settings.approval_required() else "approved"
     with db.transaction():
-        invite = invites.find_valid(invite_code) if needs_invite else None
-        if needs_invite and invite is None:
+        invite = invites.find_valid(invite_code) if given else None
+        if given and invite is None:
             raise accounts.AccountError("auth.signup.error.invite_invalid")
         role, custom_role_id = invites.assigned_role(invite) if invite else ("user", None)
         user = accounts.create(

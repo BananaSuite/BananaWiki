@@ -80,7 +80,7 @@ def test_kanban_and_canvas_events_carry_ids_and_names_only(api_app, client, db, 
         registry.emit("kanban.comment.created", comment=comment, ticket=ticket, board=public, actor_id=boss["id"])
         registry.emit("kanban.ticket.deleted", ticket=hidden_ticket, board=private, actor_id=boss["id"])
         registry.emit("kanban.board.deleted", board=private, actor_id=boss["id"])
-        registry.emit("canvas.created", canvas={"id": 1, "slug": "plan", "title": "Plan", "visibility": "shared",
+        registry.emit("canvas.created", canvas={"id": 1, "slug": "plan", "title": "Plan", "visibility": "members",
                                                 "data": "{\"nodes\": [\"canvas body\"]}"}, actor_id=boss["id"])
         registry.emit("canvas.updated", canvas={"id": 2, "slug": "merger", "title": "Merger",
                                                 "visibility": "private"}, actor_id=boss["id"])
@@ -103,7 +103,7 @@ def test_kanban_and_canvas_events_carry_ids_and_names_only(api_app, client, db, 
     assert moved["from_column_id"] == 3 and moved["to_column_id"] == 9 and moved["ticket"]["id"] == 70
     assert payloads(db, "kanban.comment.created")[0]["comment"] == {"id": 5, "ticket_id": 70, "user_id": boss["id"]}
     assert payloads(db, "canvas.created")[0]["canvas"] == {"id": 1, "slug": "plan", "title": "Plan",
-                                                           "visibility": "shared"}
+                                                           "visibility": "members"}
     assert payloads(db, "canvas.updated")[0]["canvas"] == {"id": 2, "slug": None, "title": None,
                                                            "visibility": "private"}
     # A canvas row without its visibility counts as private.
@@ -114,11 +114,12 @@ def test_real_kanban_changes_reach_subscribed_webhooks(api_app, client, db, boss
     token = issue(api_app, boss, ["admin", "kanban"])
     create_hook(client, token, events=["kanban.board.created", "kanban.board.updated"])
     board = call(client, "POST", "/kanban/boards", token, json={"title": "Launch"}).json["board"]
+    # New boards are private: the event leaves the title out.
     assert [row["board"] for row in payloads(db, "kanban.board.created")] == [
-        {"id": board["id"], "title": "Launch", "visibility": board["visibility"]}]
-    call(client, "PUT", f"/kanban/boards/{board['id']}", token, json={"visibility": "private"})
-    assert all(row["board"]["title"] is None for row in payloads(db, "kanban.board.updated")
-               if row["board"]["visibility"] == "private")
+        {"id": board["id"], "title": None, "visibility": "private"}]
+    call(client, "PUT", f"/kanban/boards/{board['id']}", token, json={"visibility": "members"})
+    assert [row["board"]["title"] for row in payloads(db, "kanban.board.updated")
+            if row["board"]["visibility"] == "members"][-1] == "Launch"
 
 
 def test_canvas_changes_through_the_api_name_the_token_owner(api_app, client, db, boss):
@@ -201,8 +202,8 @@ def fail_pings(app, client, db, token, hook_id, count):
         in_app(app, lambda: webhooks.deliver_due(transport=Receiver(core_http.HttpError("down"))))
 
 
-def test_webhook_is_switched_off_after_repeated_failures(api_app, client, db, boss, login):
-    db.execute("UPDATE site_settings SET api_service_webhook_max_failures = 3")
+def test_webhook_is_switched_off_after_repeated_failures(api_app, client, db, boss, login, monkeypatch):
+    monkeypatch.setenv("BW_API_WEBHOOK_MAX_FAILURES", "3")
     token = issue(api_app, boss, ["admin"])
     hook = create_hook(client, token)
     fail_pings(api_app, client, db, token, hook["id"], 2)
@@ -227,7 +228,7 @@ def test_webhook_is_switched_off_after_repeated_failures(api_app, client, db, bo
     assert in_app(api_app, lambda: attention.counts(boss))[webhooks.ATTENTION_SOURCE] == 0
 
 
-def test_failing_for_days_switches_off_and_zero_means_never(api_app, client, db, boss):
+def test_failing_for_days_switches_off_and_zero_means_never(api_app, client, db, boss, monkeypatch):
     token = issue(api_app, boss, ["admin"])
     hook = create_hook(client, token)
     db.execute("UPDATE api_service__webhooks SET consecutive_failures = 1, "
@@ -239,15 +240,15 @@ def test_failing_for_days_switches_off_and_zero_means_never(api_app, client, db,
     call(client, "PUT", f"/admin/webhooks/{hook['id']}", token, json={"active": False})
     assert db.scalar("SELECT disabled_reason FROM api_service__webhooks") is None
 
-    db.execute("UPDATE site_settings SET api_service_webhook_max_failures = 0")
+    monkeypatch.setenv("BW_API_WEBHOOK_MAX_FAILURES", "0")
     call(client, "PUT", f"/admin/webhooks/{hook['id']}", token, json={"active": True})
     db.execute("UPDATE api_service__webhooks SET failing_since = datetime('now', '-9 days')")
     fail_pings(api_app, client, db, token, hook["id"], 3)
     assert db.scalar("SELECT active FROM api_service__webhooks") == 1
 
 
-def test_a_success_resets_the_failure_run(api_app, client, db, boss):
-    db.execute("UPDATE site_settings SET api_service_webhook_max_failures = 3")
+def test_a_success_resets_the_failure_run(api_app, client, db, boss, monkeypatch):
+    monkeypatch.setenv("BW_API_WEBHOOK_MAX_FAILURES", "3")
     token = issue(api_app, boss, ["admin"])
     hook = create_hook(client, token)
     fail_pings(api_app, client, db, token, hook["id"], 2)
@@ -258,19 +259,13 @@ def test_a_success_resets_the_failure_run(api_app, client, db, boss):
     assert row == {"active": 1, "consecutive_failures": 0, "failing_since": None}
 
 
-def test_failure_limit_setting(api_app, client, db, boss, login):
+def test_the_failure_limit_is_the_operators(api_app, client, db, boss, monkeypatch):
+    """20 failed attempts in a row, unless BW_API_WEBHOOK_MAX_FAILURES says otherwise; not a site setting."""
+    assert in_app(api_app, webhooks.max_failures) == 20
     token = issue(api_app, boss, ["settings"])
-    changed = call(client, "PUT", "/settings", token, json={"api_service_webhook_max_failures": 50})
-    assert changed.status_code == 200, changed.json
-    assert db.scalar("SELECT api_service_webhook_max_failures FROM site_settings") == 50
-    assert call(client, "PUT", "/settings", token, json={"api_service_webhook_max_failures": 5000}).status_code \
-        == 200
-    assert db.scalar("SELECT api_service_webhook_max_failures FROM site_settings") == 1000  # clamped
-    assert call(client, "PUT", "/settings", token, json={"api_service_webhook_max_failures": "many"}).status_code \
-        == 400
-    login(client, boss)
-    client.post("/admin/api-service/settings", data={"enabled": "1", "webhook_max_failures": "7"})
-    assert db.scalar("SELECT api_service_webhook_max_failures FROM site_settings") == 7
+    refused = call(client, "PUT", "/settings", token, json={"api_service_webhook_max_failures": 50})
+    assert refused.status_code == 403 and "api_service_webhook_max_failures" in refused.json["refused"]
+    monkeypatch.setenv("BW_API_WEBHOOK_MAX_FAILURES", "7")
     assert in_app(api_app, webhooks.max_failures) == 7
 
 

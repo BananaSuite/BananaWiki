@@ -46,7 +46,7 @@ from .attachments_api import send_stored, upload_error
 
 FEATURE = "kanban"
 _NEEDS = {"view": access.can_view, "comment": access.can_comment, "write": access.can_write,
-          "owner": access.is_owner}
+          "owner": access.is_owner, "delete": access.can_delete}
 _TICKET_FIELDS = {"title": str, "description": str, "priority": str, "color": str, "due_date": (str, type(None)),
                   "labels": list, "assignees": list}
 
@@ -113,7 +113,8 @@ def _ticket_data(data: dict[str, Any]) -> dict[str, Any]:
 
 def _board_payload(board: dict[str, Any]) -> dict[str, Any]:
     user = caller()
-    return serialize.board(board, can_write=access.can_write(user, board), is_owner=access.is_owner(user, board))
+    return serialize.board(board, can_write=access.can_write(user, board), is_owner=access.is_owner(user, board),
+                           can_delete=access.can_delete(user, board))
 
 
 def _ticket_payload(ticket_id: int) -> dict[str, Any]:
@@ -216,7 +217,7 @@ def update_board(board_id: int):
 @bp.delete("/kanban/boards/<int:board_id>")
 @requires("kanban", write=True, feature=FEATURE)
 def delete_board(board_id: int):
-    board = _board(board_id, "owner")
+    board = _board(board_id, "delete")
     _run(service.delete_board, board)
     return ok(deleted=True, id=board_id)
 
@@ -224,15 +225,16 @@ def delete_board(board_id: int):
 @bp.post("/kanban/boards/<int:board_id>/archive")
 @requires("kanban", write=True, feature=FEATURE)
 def archive_board(board_id: int):
-    """Owner only: hide the board from the list and make it read-only (archiving twice changes nothing)."""
-    board = _board(board_id, "owner")
+    """Whoever may delete the board: hide it from the list and make it read-only (archiving twice changes
+    nothing)."""
+    board = _board(board_id, "delete")
     return ok(board=_board_payload(_run(service.archive_board, board, caller())))
 
 
 @bp.post("/kanban/boards/<int:board_id>/restore")
 @requires("kanban", write=True, feature=FEATURE)
 def restore_board(board_id: int):
-    board = _board(board_id, "owner")
+    board = _board(board_id, "delete")
     return ok(board=_board_payload(_run(service.restore_board, board, caller())))
 
 

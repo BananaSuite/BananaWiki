@@ -13,7 +13,7 @@ from ... import accounts, auth, settings
 from ...i18n import t
 from ..audit import record, record_settings
 from . import dms, groups, reports, retention, store
-from .policy import DEFAULT_ATTACHMENT_MB, MAX_LENGTH_CEILING, MB
+from .policy import DEFAULT_ATTACHMENT_MB, MB
 from .routes_groups import audit_admin_read, display_name
 from .store import DM, GROUP
 from .web import bp, conversation, page_number, refuse, succeed
@@ -21,18 +21,7 @@ from .web import bp, conversation, page_number, refuse, succeed
 log = logging.getLogger("bananawiki.chat")
 PER_PAGE = 50
 
-BOOLEAN_SETTINGS = (
-    "chat_dm_enabled", "chat_group_enabled", "chat_allow_dm_creation", "chat_allow_group_creation",
-    "chat_attachments_enabled", "chat_cleanup_enabled", "chat_dm_auto_clear_messages",
-    "chat_dm_auto_clear_attachments", "chat_group_auto_clear_messages", "chat_group_auto_clear_attachments",
-    "profile_group_badges_enabled",
-)
-RETENTION_DAYS = (
-    ("chat_dm_message_retention_days", "chat_dm_auto_clear_messages"),
-    ("chat_dm_attachment_retention_days", "chat_dm_auto_clear_attachments"),
-    ("chat_group_message_retention_days", "chat_group_auto_clear_messages"),
-    ("chat_group_attachment_retention_days", "chat_group_auto_clear_attachments"),
-)
+
 
 
 def admin_layout() -> str:
@@ -165,15 +154,12 @@ def _int_field(name: str, minimum: int, maximum: int) -> int:
 
 def _settings_from_form() -> dict[str, Any]:
     ceiling_mb = max(1, current_app.config["BW"].max_attachment_size // MB)
-    values: dict[str, Any] = {name: 1 if request.form.get(name) else 0 for name in BOOLEAN_SETTINGS}
-    values["chat_max_message_length"] = _int_field("chat_max_message_length", 1, MAX_LENGTH_CEILING)
-    values["chat_max_attachment_size_mb"] = _int_field("chat_max_attachment_size_mb", 1, ceiling_mb)
-    values["chat_attachments_per_day_limit"] = _int_field("chat_attachments_per_day_limit", 1, 100_000)
-    values["chat_cleanup_frequency_days"] = _int_field("chat_cleanup_frequency_days", 1, 365)
-    values["chat_cleanup_hour"] = _int_field("chat_cleanup_hour", 0, 23)
-    for days, switch in RETENTION_DAYS:
-        values[days] = _int_field(days, 1 if values[switch] else 0, 36_500)
-    values["chat_cleanup_split_configured"] = 1
+    values: dict[str, Any] = {
+        "chat_max_attachment_size_mb": _int_field("chat_max_attachment_size_mb", 1, ceiling_mb),
+        "chat_attachments_per_day_limit": _int_field("chat_attachments_per_day_limit", 1, 100_000),
+    }
+    for column in retention.RETENTION_COLUMNS:
+        values[column] = _int_field(column, 0, 36_500)  # 0: kept
     return values
 
 
@@ -192,7 +178,6 @@ def admin_settings():
             record_settings(previous, values, via="chat")
             return succeed(url_for("chat.admin_settings"), "common.saved")
     current = dict(settings.load())
-    current.update(retention.policy_columns())
     return _render(
         "chat/admin_settings.html", values=current, error_field=error_field,
         error=t("chat.settings.error.invalid", field=t(f"chat.settings.{error_field}")) if error_field else None,

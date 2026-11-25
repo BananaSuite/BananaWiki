@@ -1,4 +1,7 @@
 {
+  "audit.action.access_request.approved": "Richiesta di accesso in modifica approvata",
+  "audit.action.access_request.created": "Accesso in modifica richiesto",
+  "audit.action.access_request.declined": "Richiesta di accesso in modifica rifiutata",
   "audit.action.announcement.created": "Annuncio creato",
   "audit.action.announcement.deleted": "Annuncio eliminato",
   "audit.action.announcement.updated": "Annuncio modificato",
@@ -121,6 +124,10 @@
   "audit.action.bm_mode.everyone_changed": "Modalità BM cambiata per gli account per ruolo",
   "audit.action.user.recovery_sign_in": "Accesso dalla pagina di emergenza per amministratori",
   "audit.action.user.recovery_sign_in_failed": "Rifiutato dalla pagina di emergenza per amministratori",
+  "audit.action.user.acting_signin": "Amministratore dell'hosting entrato come l'account",
+  "audit.action.user.reverified": "Confermato con BananaWiki Hosting",
+  "audit.action.user.platform_linked": "Collegato a BananaWiki Hosting",
+  "audit.action.user.platform_unlinked": "Scollegato da BananaWiki Hosting",
   "audit.col.action": "Azione",
   "audit.col.actor": "Da",
   "audit.col.details": "Dettagli",
@@ -154,6 +161,7 @@
   "audit.detail.size": "Dimensione",
   "audit.detail.title": "Titolo",
   "audit.detail.until": "Fino al",
+  "audit.detail.hosting_admin": "Dall'amministratore dell'hosting",
   "audit.detail.username": "Nome utente",
   "audit.detail.usernames": "Nomi utente",
   "audit.detail.uses": "Utilizzi",
@@ -170,10 +178,6 @@
   "audit.nav": "Registro di controllo",
   "audit.retention.current": "Le voci vengono conservate per {days} giorni.",
   "audit.retention.current_forever": "Le voci vengono conservate per sempre.",
-  "audit.retention.days": "Conserva le voci per (giorni)",
-  "audit.retention.hint": "Le voci più vecchie vengono eliminate una volta al giorno. 0 per conservarle per sempre.",
-  "audit.retention.invalid": "Inserisci un numero di giorni tra {minimum} e {maximum}.",
-  "audit.retention.owner_only": "Solo proprietari e superutenti possono cambiare per quanto tempo vengono conservate le voci.",
   "audit.retention.title": "Conservazione",
   "audit.system": "Sistema",
   "audit.target.announcement": "Annuncio",
@@ -194,5 +198,6 @@
   "audit.title": "Registro di controllo",
   "audit.value.all": "Tutte",
   "feature.audit.description": "Registra accessi, modifiche ad account e ruoli, eliminazioni e impostazioni del sito.",
-  "feature.audit.name": "Registro di controllo"
+  "feature.audit.name": "Registro di controllo",
+  "audit.retention.fixed": "Chi gestisce il server può cambiarlo (BW_AUDIT_RETENTION_DAYS)."
 }

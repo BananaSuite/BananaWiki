@@ -7,6 +7,7 @@ columns, and never touches columns it was not given.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from flask import current_app, g, has_request_context
@@ -24,9 +25,62 @@ INTERNAL_COLUMNS = frozenset({
     "last_backup_sent_at", "platform_upload_blacklist",
 })
 
-# Columns of features that no longer exist. Kept in the table, never written.
+# Columns of features that no longer exist, or of options merged into others. Kept in the table, never
+# written. favicon_enabled: the chosen icon is always used (version 22). The Kanban, canvas, page
+# builder and chat access settings: permissions and each item's visibility decide; api_service_enabled:
+# the API's plugin switch is its one switch (version 23).
 RETIRED_COLUMN_PREFIXES = ("telegram_sync_", "feedback_", "beta_")
-RETIRED_COLUMNS = frozenset({"banana_mode", "devtools_enabled"})
+RETIRED_COLUMNS = frozenset({
+    "banana_mode", "devtools_enabled", "favicon_enabled",
+    "kanban_access", "kanban_write_access", "kanban_open_access", "kanban_public_access_enabled",
+    "canvas_access", "canvas_write_access", "canvas_open_access", "canvas_public_access_enabled",
+    "page_builder_access", "chat_dm_enabled", "chat_group_enabled", "chat_allow_dm_creation",
+    "chat_allow_group_creation", "chat_attachments_enabled", "api_service_enabled",
+    # Version 24: settings few administrators ever changed, now fixed (see FIXED) or folded into another.
+    "public_mode_show_message", "tts_enabled_languages", "tts_performance_mode",
+    "tts_gpu_enabled", "tts_gpu_timeout", "chat_max_message_length", "chat_cleanup_enabled",
+    "chat_cleanup_frequency_days", "chat_cleanup_hour", "chat_dm_auto_clear_messages",
+    "chat_dm_auto_clear_attachments", "chat_group_auto_clear_messages", "chat_group_auto_clear_attachments",
+    "chat_cleanup_split_configured", "profile_group_badges_enabled",
+})
+
+# Version 24: the value every wiki uses for a setting that is no longer offered (stored values are ignored).
+# A pair is an environment variable that overrides the default, for operators who need another value.
+FIXED: dict[str, Any] = {
+    "approval_pending_timeout_hours": 0,  # unreviewed sign-ups wait until someone decides
+    "approval_denied_timeout_hours": 24,
+    "onboarding_replay_disabled": 0,
+    "intro_role_switching_enabled": 1,
+    "intro_role_switching_roles": "user,editor,admin",
+    "markdown_export_enabled": 1,  # Markdown downloads follow the right to edit the page
+    "profile_contribution_chart_enabled": 1,
+    "quota_request_cooldown_hours": 0,
+    "auto_logout_hour": 0,
+    "page_reservation_cooldown_hours": 24,
+    "reservation_quota_auto_approve_max": 0,
+    "contribution_quota_auto_approve_max": 0,
+    "interface_language_fallback": "en",
+    "attention_email_interval_minutes": 60,
+    "attention_email_daily_hour": 8,
+    "audit_log_retention_days": ("BW_AUDIT_RETENTION_DAYS", 365),
+    "api_service_rate_limit": ("BW_API_RATE_LIMIT", 60),
+    "api_service_admin_rate_limit": ("BW_API_ADMIN_RATE_LIMIT", 120),
+    "api_service_max_tokens_per_user": ("BW_API_MAX_TOKENS_PER_USER", 5),
+    "api_service_webhook_max_failures": ("BW_API_WEBHOOK_MAX_FAILURES", 20),
+}
+
+
+def fixed_values() -> dict[str, Any]:
+    """:data:`FIXED` with the operators' environment overrides applied (whole numbers only)."""
+    values: dict[str, Any] = {}
+    for name, value in FIXED.items():
+        if isinstance(value, tuple):
+            variable, default = value
+            raw = os.environ.get(variable, "").strip()
+            values[name] = int(raw) if raw.isdigit() else default
+        else:
+            values[name] = value
+    return values
 
 
 def _secret_key() -> str:
@@ -40,6 +94,8 @@ def load() -> dict[str, Any]:
         if cached is not None:
             return cached
     row = db.one("SELECT * FROM site_settings WHERE id = 1") or {}
+    if row:
+        row.update(fixed_values())
     for column in ENCRYPTED_COLUMNS:
         if column in row:
             row[column] = crypto.decrypt(_secret_key(), row[column])
@@ -64,7 +120,8 @@ def writable_columns() -> frozenset[str]:
         columns = column_names(db.conn, "site_settings")
         cache = frozenset(
             c for c in columns
-            if c not in INTERNAL_COLUMNS and c not in RETIRED_COLUMNS and not c.startswith(RETIRED_COLUMN_PREFIXES)
+            if c not in INTERNAL_COLUMNS and c not in RETIRED_COLUMNS and c not in FIXED
+            and not c.startswith(RETIRED_COLUMN_PREFIXES)
         )
         current_app.extensions["bananawiki.settings_columns"] = cache
     return cache

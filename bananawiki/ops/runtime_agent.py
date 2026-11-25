@@ -69,7 +69,7 @@ TASK_MODULE = "bananawiki.ops.tenant_task"
 TASK_COMMAND = ("python", "-E", "-s", "-m", TASK_MODULE)
 TASK_ACTIONS = frozenset({
     "seed", "migrate", "list_users", "set_password", "remove_user", "reset_admin", "analytics", "apply_policy",
-    "quarantine", "snapshot", "restore_db", "discard",
+    "quarantine", "snapshot", "restore_db", "discard", "list_links", "link_users", "unlink_user",
 })
 MAX_TASK_REQUEST = 64 * 1024
 MAX_TASK_RESPONSE = 2 * 1024 * 1024

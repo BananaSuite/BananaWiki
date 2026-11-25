@@ -1,5 +1,6 @@
-/* Portal behaviours: mobile menu, the "Go to" menu, theme label, remembered sections, dismissible banners,
-   resumable archive uploads and the custom domain checklist. No inline handlers. */
+/* Portal behaviours: mobile menu, the "Go to" menu, theme label, remembered sections (opened for a field the
+   browser refuses), dismissible banners, resumable archive uploads and the custom domain checklist. No inline
+   handlers. */
 (function () {
   "use strict";
   var BW = window.BW;
@@ -85,13 +86,15 @@
       sync();
     });
 
-    // Fields that only apply to some choices of a select (data-shown-unless="<select name>=<value>").
-    document.querySelectorAll("[data-shown-unless]").forEach(function (field) {
-      var rule = field.getAttribute("data-shown-unless").split("=");
+    // Fields that only apply to some choices of a select (data-shown-unless="<select name>=<value>", or
+    // data-shown-when for the one choice they belong to).
+    document.querySelectorAll("[data-shown-unless], [data-shown-when]").forEach(function (field) {
+      var when = field.hasAttribute("data-shown-when");
+      var rule = field.getAttribute(when ? "data-shown-when" : "data-shown-unless").split("=");
       var form = field.closest("form");
       var select = form && form.querySelector('select[name="' + rule[0] + '"]');
       if (!select) return;
-      function sync() { field.hidden = select.value === rule[1]; }
+      function sync() { field.hidden = when ? select.value !== rule[1] : select.value === rule[1]; }
       select.addEventListener("change", sync);
       sync();
     });
@@ -117,6 +120,29 @@
         try { sessionStorage.setItem(key, details.open ? "1" : "0"); } catch (e) { /* storage off */ }
       });
     });
+
+    // A minimum length counts the text without the spaces at its ends, as the server does (data-min-trimmed,
+    // with the message to show in data-min-message): the browser's own minlength counts them.
+    document.querySelectorAll("[data-min-trimmed]").forEach(function (field) {
+      var minimum = parseInt(field.getAttribute("data-min-trimmed"), 10) || 0;
+      var message = field.getAttribute("data-min-message") || "";
+      function check() {
+        var length = Array.from(field.value.trim()).length;
+        field.setCustomValidity(field.value.length > 0 && length < minimum ? message : "");
+      }
+      field.addEventListener("input", check);
+      check();
+    });
+
+    // The header's Save checks fields in collapsed sections too: one the browser refuses opens its section,
+    // so the browser can point at it.
+    document.addEventListener("invalid", function (event) {
+      var parent = event.target;
+      while (parent) {
+        if (parent.tagName === "DETAILS") parent.open = true;
+        parent = parent.parentElement;
+      }
+    }, true);
 
     // Following a section link also opens a collapsed section containing it.
     function revealSection(hash) {

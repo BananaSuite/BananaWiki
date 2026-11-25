@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-from flask import redirect, render_template, request, url_for
+from flask import render_template, request
 
 from bananawiki.core.numbers import ascii_int
 
-from ... import auth, registry, settings
+from ... import auth, registry
 from . import service
 
 bp = registry.feature_blueprint("audit", "audit", __name__, template_folder="templates")
-
-
-def _may_change_retention() -> bool:
-    from ..admin import service as admin_service  # the admin feature records through this one
-
-    return admin_service.is_top(auth.real_user())
 
 
 def _hide_protected_addresses(rows: list[dict]) -> None:
@@ -50,24 +44,5 @@ def index():
     _hide_protected_addresses(rows)
     return render_template(
         "audit/index.html", rows=rows, page=page, pages=pages, action=action, actor=actor,
-        actions=service.actions(), retention_days=service.retention_days(), bounds=service.RETENTION_BOUNDS,
-        can_change_retention=_may_change_retention(),
+        actions=service.actions(), retention_days=service.retention_days(),
     )
-
-
-@bp.post("/admin/audit/retention")
-@auth.admin_required
-def retention():
-    # Shortening the retention erases history: not for an administrator whose actions it records.
-    if not _may_change_retention():
-        return auth.deny()
-    days = request.form.get("audit_log_retention_days", type=int)
-    low, high = service.RETENTION_BOUNDS
-    if days is None or not low <= days <= high:
-        auth.flash_t("audit.retention.invalid", "error", minimum=low, maximum=high)
-        return redirect(url_for("audit.index"))
-    previous = service.retention_days()
-    settings.update({"audit_log_retention_days": days})
-    service.record("audit.retention_changed", details={"old": previous, "new": days})
-    auth.flash_t("common.saved", "success")
-    return redirect(url_for("audit.index"))

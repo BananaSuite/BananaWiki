@@ -1,4 +1,7 @@
 {
+  "audit.action.access_request.approved": "Anfrage für Bearbeitungsrechte angenommen",
+  "audit.action.access_request.created": "Bearbeitungsrechte angefragt",
+  "audit.action.access_request.declined": "Anfrage für Bearbeitungsrechte abgelehnt",
   "audit.action.announcement.created": "Ankündigung erstellt",
   "audit.action.announcement.deleted": "Ankündigung gelöscht",
   "audit.action.announcement.updated": "Ankündigung geändert",
@@ -121,6 +124,10 @@
   "audit.action.bm_mode.everyone_changed": "BM-Modus für Konten nach Rolle geändert",
   "audit.action.user.recovery_sign_in": "Über die Notfall-Anmeldung für Administratoren angemeldet",
   "audit.action.user.recovery_sign_in_failed": "Bei der Notfall-Anmeldung für Administratoren abgewiesen",
+  "audit.action.user.acting_signin": "Hosting-Administrator als das Konto angemeldet",
+  "audit.action.user.reverified": "Mit BananaWiki Hosting bestätigt",
+  "audit.action.user.platform_linked": "Mit BananaWiki Hosting verbunden",
+  "audit.action.user.platform_unlinked": "Von BananaWiki Hosting getrennt",
   "audit.col.action": "Aktion",
   "audit.col.actor": "Von",
   "audit.col.details": "Details",
@@ -154,6 +161,7 @@
   "audit.detail.size": "Größe",
   "audit.detail.title": "Titel",
   "audit.detail.until": "Bis",
+  "audit.detail.hosting_admin": "Durch Hosting-Administrator",
   "audit.detail.username": "Benutzername",
   "audit.detail.usernames": "Benutzernamen",
   "audit.detail.uses": "Nutzungen",
@@ -170,10 +178,6 @@
   "audit.nav": "Audit-Protokoll",
   "audit.retention.current": "Einträge werden {days} Tage lang aufbewahrt.",
   "audit.retention.current_forever": "Einträge werden dauerhaft aufbewahrt.",
-  "audit.retention.days": "Einträge aufbewahren (Tage)",
-  "audit.retention.hint": "Ältere Einträge werden einmal täglich gelöscht. Bei 0 werden sie dauerhaft aufbewahrt.",
-  "audit.retention.invalid": "Gib eine Anzahl von Tagen zwischen {minimum} und {maximum} ein.",
-  "audit.retention.owner_only": "Nur Eigentümer und Superuser können ändern, wie lange Einträge aufbewahrt werden.",
   "audit.retention.title": "Aufbewahrung",
   "audit.system": "System",
   "audit.target.announcement": "Ankündigung",
@@ -194,5 +198,6 @@
   "audit.title": "Audit-Protokoll",
   "audit.value.all": "Alle",
   "feature.audit.description": "Zeichnet Anmeldungen, Änderungen an Konten und Rollen, Löschungen und Website-Einstellungen auf.",
-  "feature.audit.name": "Audit-Protokoll"
+  "feature.audit.name": "Audit-Protokoll",
+  "audit.retention.fixed": "Der Betreiber des Servers kann das ändern (BW_AUDIT_RETENTION_DAYS)."
 }

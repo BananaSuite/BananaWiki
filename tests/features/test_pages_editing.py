@@ -29,6 +29,7 @@ def test_editor_creates_page_with_category_preselected(app, client, make_user, l
 
 def test_create_requires_page_create_permission(app, client, make_user, login, db):
     plain = make_user("plainuser")
+    restrict(db, plain, keys={"page.view_all", "contribution.propose"})
     login(client, plain)
     assert client.get("/create").status_code == 403
     assert client.post("/create", data={"title": "X"}).status_code == 403
@@ -51,9 +52,11 @@ def test_create_respects_category_write_restrictions(app, client, make_user, log
     assert client.post("/create", data={"title": "Yes", "category_id": allowed["id"]}).status_code == 302
 
 
-def test_create_denied_interceptor(app, client, make_user, login):
+def test_create_denied_interceptor(app, client, make_user, login, db):
     add_interceptor(app, "page.create_denied", lambda user, category_id: redirect("/propose"))
-    login(client, make_user("user7"))
+    reader = make_user("user7")
+    restrict(db, reader, keys={"page.view_all"})
+    login(client, reader)
     response = client.get("/create")
     assert response.status_code == 302 and response.headers["Location"] == "/propose"
 
@@ -339,8 +342,10 @@ def test_builder_change_keeps_title_saved_after_the_callers_snapshot(app):
 # Live preview and code highlighting
 
 
-def test_preview_is_for_accounts_that_can_edit(app, client, make_user, login):
-    login(client, make_user("reader"))
+def test_preview_is_for_accounts_that_can_edit(app, client, make_user, login, db):
+    reader = make_user("reader")
+    restrict(db, reader, keys={"page.view_all", "contribution.propose"})
+    login(client, reader)
     assert client.post("/api/preview", json={"content": "# Hi"}).status_code == 403
     editor = app.test_client()
     login(editor, make_user("writer", role="editor"))
@@ -355,8 +360,10 @@ def test_preview_refuses_requests_past_the_sixtieth(app, make_user, login, froze
     assert statuses[:60] == [200] * 60 and statuses[60] == 429
 
 
-def test_code_highlighting_is_for_accounts_that_can_edit(app, client, make_user, login):
-    login(client, make_user("reader"))
+def test_code_highlighting_is_for_accounts_that_can_edit(app, client, make_user, login, db):
+    reader = make_user("reader")
+    restrict(db, reader, keys={"page.view_all", "contribution.propose"})
+    login(client, reader)
     body = {"content": "x = 1", "language": "python"}
     assert client.post("/api/code/highlight", json=body).status_code == 403
     editor = app.test_client()

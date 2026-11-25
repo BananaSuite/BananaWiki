@@ -8,7 +8,9 @@ Other features record security-relevant actions with :func:`record`::
            details={"title": board["title"]})
 
 The acting account and the client IP default to the current request (None
-outside one). ``details`` must be JSON-serialisable and must never contain
+outside one). In a session a hosting administrator opened while acting as
+the account (:func:`bananawiki.wiki.auth.acting`), every entry also names
+that administrator (``hosting_admin``): "<admin> on behalf of <account>". ``details`` must be JSON-serialisable and must never contain
 secrets (passwords, tokens, invite codes). Nothing is written while the
 audit feature is switched off (except with ``force``, for the entry saying
 it was switched off), and a failure to write is logged, never raised, so
@@ -71,6 +73,10 @@ def record(
             return
         actor = _request_actor() if actor_id is _CURRENT else actor_id
         address = (client_ip() if has_request_context() else None) if ip is _CURRENT else ip
+        acting = auth.acting() if has_request_context() else None
+        if acting is not None:
+            # A hosting administrator signed in as the account: "<admin> on behalf of <account>".
+            details = {**(details or {}), "hosting_admin": acting["admin"]}
         db.insert("audit_log", {
             "created_at": now_sql(),
             "actor_id": None if actor is None else str(actor),

@@ -16,11 +16,13 @@
 <header class="page-header page-header--save"><h1>{{ t('hosting.admin.nav.settings') }}</h1>
   <div class="page-header__actions"><button class="btn btn--primary" type="submit" form="settings-form" name="action" value="save_all">{{ t('common.save') }}</button></div></header>
 {% macro section(action, title, hint='', extra=none) %}
-<details class="card" id="{{ action }}" data-remember{% if request.args.get('open') == action %} open{% endif %}><summary>{{ title }}</summary>{% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
+<details class="card" id="{{ action }}" data-remember{% if (open_section or request.args.get('open')) == action %} open{% endif %}><summary>{{ title }}</summary>{% if hint %}<p class="hint">{{ hint }}</p>{% endif %}
 <div class="form">
 {{ caller() }}
 </div>{% if extra %}{{ extra() }}{% endif %}</details>
 {% endmacro %}
+{#- Options few administrators need: closed under "Advanced" at the end of their section. -#}
+{% macro advanced() %}<details class="advanced"><summary>{{ t('hosting.settings.advanced') }}</summary><div class="form">{{ caller() }}</div></details>{% endmacro %}
 {% macro choices(name, legend, options, current, hint='') %}
 <fieldset class="plain"><legend>{{ legend }}</legend>{% if hint %}<p class="hint hint--block">{{ hint }}</p>{% endif %}
   {% for value, label in options %}<label class="check"><input type="radio" name="{{ name }}" value="{{ value }}"{% if value == current %} checked{% endif %}><span>{{ label }}</span></label>{% endfor %}
@@ -31,30 +33,32 @@
 <section class="settings-group" aria-labelledby="settings-accounts">
 <h2 class="settings-group__title" id="settings-accounts">{{ t('hosting.settings.group.accounts') }}</h2>
 {% call section('save_signups', t('hosting.settings.signups')) %}
-  <div class="field"><label for="f-mode">{{ t('hosting.settings.signup_mode') }}</label><select id="f-mode" name="signup_mode">{% for mode in ('open', 'invite', 'approval', 'closed') %}<option value="{{ mode }}"{% if mode == signup_mode %} selected{% endif %}>{{ t('hosting.signup_mode.' ~ mode) }}</option>{% endfor %}</select></div>
-  {#- With "Administrator approval" every new account waits whatever the box says, so it shows ticked. -#}
-  {{ ui.check('hosting_activation_required', t('hosting.settings.activation_required'), s.hosting_activation_required or signup_mode == 'approval', hint=t('hosting.settings.activation_required_hint')) }}
-  {{ ui.check('signup_use_case_required', t('hosting.settings.use_case_required'), s.signup_use_case_required) }}
-  {{ ui.check('hosting_activation_denied_deletion_enabled', t('hosting.settings.delete_denied'), (s.hosting_activation_denied_timeout_seconds or 0) >= 0) }}
+  {{ choices('signup_mode', t('hosting.settings.signup_mode'), [('open', t('hosting.signup_mode.open')), ('invite', t('hosting.signup_mode.invite')), ('closed', t('hosting.signup_mode.closed'))], signup_mode) }}
+  {#- Approval combines with "Open" and "Invite code"; the intended use is asked only of accounts that wait for it. -#}
+  {{ ui.check('hosting_activation_required', t('hosting.settings.activation_required'), s.hosting_activation_required, hint=t('hosting.settings.activation_required_hint')) }}
+  <div class="sub-option">{{ ui.check('signup_use_case_required', t('hosting.settings.use_case_required'), s.signup_use_case_required) }}</div>
+  <div class="sub-option">{{ ui.check('hosting_activation_denied_deletion_enabled', t('hosting.settings.delete_denied'), (s.hosting_activation_denied_timeout_seconds or 0) >= 0) }}
   {#- The stored timeout fills the fields, so saving this section for another reason keeps it (turned off,
       the fields show the usual day). -#}
   {% set denied_after = s.hosting_activation_denied_timeout_seconds if s.hosting_activation_denied_timeout_seconds is not none else 86400 %}
   {{ ui.duration_fields('act_timeout', legend=t('hosting.settings.delete_denied_after'), hint=t('hosting.settings.delete_denied_hint'),
-      seconds=denied_after if denied_after|int >= 0 else 86400) }}
+      seconds=denied_after if denied_after|int >= 0 else 86400) }}</div>
 {% endcall %}
 {% call section('save_email', t('hosting.settings.email')) %}
   {% if not email_configured %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.email_missing') }}</div></div>{% endif %}
   {{ ui.check('email_paused', t('hosting.settings.email_paused'), s.email_paused, hint=t('hosting.settings.email_paused_hint')) }}
   {% if s.email_paused %}<p class="small muted">{{ tn('hosting.settings.email_paused_held', s.email_paused_held or 0, when=s.email_paused_at|datetime if s.email_paused_at else '') }}</p>{% endif %}
   {{ choices('signup_email', t('hosting.settings.signup_email'), [('required', t('hosting.settings.signup_email.required')), ('optional', t('hosting.settings.signup_email.optional')), ('off', t('hosting.settings.signup_email.off'))], signup_email) }}
-  {{ choices('existing_email', t('hosting.settings.existing_email'), [('required', t('hosting.settings.existing_email.required')), ('optional', t('hosting.settings.existing_email.optional')), ('off', t('hosting.settings.existing_email.off'))], existing_email, hint=t('hosting.settings.existing_email_hint')) }}
+  {{ choices('existing_email', t('hosting.settings.existing_email'), [('required', t('hosting.settings.existing_email.required')), ('optional', t('hosting.settings.existing_email.optional')), ('off', t('hosting.settings.existing_email.off'))], existing_email) }}
   {{ choices('email_shared', t('hosting.settings.email_shared'), [('0', t('hosting.settings.email_shared.no')), ('1', t('hosting.settings.email_shared.yes'))], '1' if s.email_shared else '0') }}
   {% if shared_addresses %}<p class="small muted">{{ tn('hosting.settings.shared_addresses', shared_addresses) }}</p>{% endif %}
   {{ ui.check('email_verification_required', t('hosting.settings.verification_required'), s.email_verification_required, hint=t('hosting.settings.verification_hint')) }}
+  {% call advanced() %}
   {{ ui.field('email_verification_cooldown_seconds', t('hosting.settings.cooldown'), s.email_verification_cooldown_seconds, type='number', attrs={'min': 30, 'max': 3600}) }}
   {{ ui.check('email_flag_block_reentry', t('hosting.settings.flag_block_reentry'), s.email_flag_block_reentry) }}
+  {% endcall %}
 {% endcall %}
-{% call section('save_notices', t('hosting.settings.notices'), t('hosting.settings.notices_hint')) %}
+{% call section('save_notices', t('hosting.settings.notices')) %}
   {% for group, items in notice_groups.items() %}
   <fieldset class="plain"><legend>{{ t('hosting.notices.group.' ~ group) }}</legend>
     <div class="check-grid">{% for notice in items %}{{ ui.check('notice_' ~ notice.kind, t('hosting.notices.' ~ notice.kind), notices_on[notice.kind]) }}{% endfor %}</div>
@@ -70,11 +74,13 @@
   <fieldset class="plain"><legend>{{ t('hosting.settings.notify_sources') }}</legend>
     <div class="check-grid">{% for source in attention_sources %}{{ ui.check('attention_source_' ~ source.id, t(source.label), attention_emailed[source.id]) }}{% endfor %}</div>
   </fieldset>
-  <div class="field"><label for="f-nm">{{ t('hosting.settings.notify_mode') }}</label><select id="f-nm" name="approval_notify_mode">{% for m in ('immediate', 'digest', 'daily') %}<option value="{{ m }}"{% if s.approval_notify_mode == m %} selected{% endif %}>{{ t('hosting.settings.notify_' ~ m) }}</option>{% endfor %}</select></div>
-  <div class="form-grid">
-  {{ ui.field('approval_notify_interval_minutes', t('hosting.settings.notify_interval'), s.approval_notify_interval_minutes, type='number', hint=t('hosting.settings.notify_interval_hint'), attrs={'min': notify_interval[0], 'max': notify_interval[1]}) }}
-  {{ ui.field('approval_notify_daily_hour', t('hosting.settings.notify_daily_hour'), s.approval_notify_daily_hour, type='number', hint=t('hosting.settings.notify_daily_hour_hint'), attrs={'min': 0, 'max': 23}) }}
-  </div>
+  {#- Each mode with the one number it uses. -#}
+  <fieldset class="plain"><legend>{{ t('hosting.settings.notify_mode') }}</legend>
+  {% for m in ('immediate', 'digest', 'daily') %}<label class="check"><input type="radio" name="approval_notify_mode" value="{{ m }}"{% if s.approval_notify_mode == m %} checked{% endif %}><span>{{ t('hosting.settings.notify_' ~ m) }}</span></label>
+  {% if m == 'digest' %}<div class="sub-option">{{ ui.field('approval_notify_interval_minutes', t('hosting.settings.notify_interval'), s.approval_notify_interval_minutes, type='number', attrs={'min': notify_interval[0], 'max': notify_interval[1], 'class': 'hosting-num'}) }}</div>
+  {% elif m == 'daily' %}<div class="sub-option">{{ ui.field('approval_notify_daily_hour', t('hosting.settings.notify_daily_hour'), s.approval_notify_daily_hour, type='number', attrs={'min': 0, 'max': 23, 'class': 'hosting-num'}) }}</div>{% endif %}
+  {% endfor %}
+  </fieldset>
 </div>
 <div class="cluster">
   <button class="btn btn--small" type="submit" formaction="{{ url_for('admin.send_test_email') }}" formnovalidate{% if not current_account.email %} disabled{% endif %}>{{ t('hosting.attention.test_send') }}</button>
@@ -83,6 +89,12 @@
 </details>
 {% call section('save_admin_mfa', t('hosting.settings.admin_mfa')) %}
   {{ ui.check('admin_mfa_required', t('hosting.settings.admin_mfa_required'), s.admin_mfa_required) }}
+{% endcall %}
+{#- Acting as an account: how long it lasts, whether the account hears of it, and whether it reaches wikis and apps. -#}
+{% call section('save_acting', t('hosting.settings.acting'), t('hosting.settings.acting_hint')) %}
+  {{ ui.field('admin_act_minutes', t('hosting.settings.admin_act_minutes'), value=s.admin_act_minutes, type='number', attrs={'min': 5, 'max': 480, 'class': 'hosting-num hosting-num--sm'}) }}
+  {{ ui.check('admin_act_notify', t('hosting.settings.admin_act_notify'), s.admin_act_notify, hint=t('hosting.settings.admin_act_notify_hint')) }}
+  {{ ui.check('admin_app_signin', t('hosting.settings.admin_app_signin'), s.admin_app_signin, hint=t('hosting.settings.admin_app_signin_hint')) }}
 {% endcall %}
 {% call section('save_bot_protection', t('hosting.settings.bot_protection')) %}
   {{ ui.check('bot_protection_enabled', t('hosting.settings.bot_protection_enabled'), s.bot_protection_enabled) }}
@@ -127,10 +139,13 @@
   {% endif %}
 {% endcall %}
 {% call section('save_wiki_features', t('hosting.settings.wiki_features')) %}
-  {{ ui.check('forbid_non_admin_public_wikis', t('hosting.settings.forbid_public'), s.forbid_non_admin_public_wikis) }}
-  {{ ui.check('auto_approve_public_access_requests', t('hosting.settings.auto_public'), s.auto_approve_public_access_requests) }}
-  {{ ui.check('forbid_non_admin_page_builder', t('hosting.settings.forbid_builder'), s.forbid_non_admin_page_builder) }}
-  {{ ui.check('auto_approve_page_builder_requests', t('hosting.settings.auto_builder'), s.auto_approve_page_builder_requests) }}
+  {#- One choice per feature (routes/admin.py FEATURE_POLICIES); administrators' own wikis always have both. -#}
+  {% for feature, restricted, auto in (('public_access', s.forbid_non_admin_public_wikis, s.auto_approve_public_access_requests),
+                                       ('page_builder', s.forbid_non_admin_page_builder, s.auto_approve_page_builder_requests)) %}
+  {{ choices(feature ~ '_policy', t('hosting.settings.policy.' ~ feature),
+             [('owners', t('hosting.settings.policy.owners')), ('auto', t('hosting.settings.policy.auto')), ('ask', t('hosting.settings.policy.ask'))],
+             'owners' if not restricted else ('auto' if auto else 'ask')) }}
+  {% endfor %}
 {% endcall %}
 {% call section('save_wiki_upload_policy', t('hosting.settings.uploads')) %}
   {{ ui.field('global_wiki_upload_max_size_mb', t('hosting.admin.upload_max_mb'), s.global_wiki_upload_max_size_mb, type='number', attrs={'min': 1, 'max': 2048}) }}
@@ -143,19 +158,20 @@
   {{ ui.textarea('global_tts_list', t('hosting.settings.tts_list'), s.global_tts_list, attrs={'rows': 2}, id='f-tl') }}
 {% endcall %}
 {% call section('save_tts_gpu', t('hosting.settings.tts_gpu')) %}
-  {{ ui.check('global_tts_gpu_enabled', t('hosting.settings.tts_gpu_enabled'), s.global_tts_gpu_enabled) }}
-  {{ ui.field('global_tts_gpu_url', t('hosting.settings.tts_gpu_url'), s.global_tts_gpu_url, type='url') }}
+  {#- A saved address is the switch (schema 16): empty, wikis read aloud on their own server. -#}
+  {{ ui.field('global_tts_gpu_url', t('hosting.settings.tts_gpu_url'), s.global_tts_gpu_url, type='url', hint=t('hosting.settings.tts_gpu_url_hint')) }}
   {{ ui.field('global_tts_gpu_auth_token', t('hosting.settings.tts_gpu_token'), type='password', hint=t('hosting.settings.token_set') if gpu_token_set else '', attrs={'autocomplete': 'off'}) }}
   {{ ui.check('clear_token', t('hosting.settings.token_clear')) }}
-  {{ ui.field('global_tts_gpu_timeout', t('hosting.settings.tts_gpu_timeout'), s.global_tts_gpu_timeout, type='number', attrs={'min': 5, 'max': 3600}) }}
+  {% call advanced() %}{{ ui.field('global_tts_gpu_timeout', t('hosting.settings.tts_gpu_timeout'), s.global_tts_gpu_timeout, type='number', attrs={'min': 5, 'max': 3600}) }}{% endcall %}
 {% endcall %}
 </section>
 
 <section class="settings-group" aria-labelledby="settings-integrations">
 <h2 class="settings-group__title" id="settings-integrations">{{ t('hosting.settings.group.integrations') }}</h2>
+{#- Apps need platform sign-in, and the limit applies only while accounts may register them. -#}
 {% call section('save_oauth', t('hosting.settings.oauth')) %}{{ ui.check('platform_oauth_enabled', t('hosting.settings.oauth_enabled'), s.platform_oauth_enabled) }}
-{{ ui.check('oauth_apps_enabled', t('hosting.settings.oauth_apps_enabled'), s.oauth_apps_enabled, hint=t('hosting.settings.oauth_apps_enabled_hint')) }}
-{{ ui.field('oauth_apps_per_account', t('hosting.settings.oauth_apps_per_account'), value=s.oauth_apps_per_account, type='number', attrs={'min': 0, 'max': 100, 'class': 'hosting-num hosting-num--sm'}, hint=t('hosting.settings.oauth_apps_per_account_hint')) }}{% endcall %}
+<div class="sub-option">{{ ui.check('oauth_apps_enabled', t('hosting.settings.oauth_apps_enabled'), s.oauth_apps_enabled, hint=t('hosting.settings.oauth_apps_enabled_hint')) }}
+<div class="sub-option">{{ ui.field('oauth_apps_per_account', t('hosting.settings.oauth_apps_per_account'), value=s.oauth_apps_per_account, type='number', attrs={'min': 0, 'max': 100, 'class': 'hosting-num hosting-num--sm'}, hint=t('hosting.settings.oauth_apps_per_account_hint')) }}</div></div>{% endcall %}
 {% call section('save_api', t('hosting.settings.api')) %}{{ ui.check('api_enabled', t('hosting.settings.api_enabled'), s.api_enabled) }}{% endcall %}
 {#- The top bar's "Go to" menu lists these apps beside the main wikis; an empty address leaves an app out. -#}
 {% call section('save_apps', t('hosting.goto.settings'), t('hosting.goto.settings_hint')) %}
@@ -206,7 +222,7 @@
     <ul>{% for item in backup.skipped %}<li><code>{{ item.tenant }}</code>: {{ t('hosting.runtime.' ~ item.code, t('hosting.runtime.failed')) }}{% if item.detail %}<br><span class="small">{{ item.detail|server_text }}</span>{% endif %}</li>{% endfor %}</ul></div></div>{% endif %}
   {% if backup.size and restore_limit and backup.size > restore_limit %}<div class="alert alert--warning"><div class="alert__body">{{ t('hosting.settings.backup_over_restore_limit', size=backup.size|filesize, limit=restore_limit|filesize) }}</div></div>{% endif %}
   <div class="btn-row">
-    {{ ui.post(url_for('admin.export_platform'), t('hosting.settings.export_platform'), 'btn btn--primary') }}
+    {{ ui.post(url_for('admin.export_platform'), t('hosting.settings.export_platform'), 'btn') }}
   </div>
   <h3>{{ t('hosting.settings.backup_key_title') }}</h3>
   <form method="post" action="{{ url_for('admin.export_backup_key') }}" class="form">{{ ui.csrf() }}

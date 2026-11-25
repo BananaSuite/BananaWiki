@@ -13,6 +13,7 @@ import pytest
 from bananawiki.wiki.db import connection_scope
 from bananawiki.wiki.features.kanban import events, extras, history
 
+from .access_support import members_see
 from .test_kanban import board_id_from, columns, new_ticket, set_settings
 
 
@@ -283,7 +284,7 @@ def test_embed_respects_permissions(app, admin_client, board, db, make_user, log
     reader = app.test_client()
     login(reader, make_user("reader"))
     assert reader.get(f"/api/embed/kanban/{board}").status_code == 404
-    set_settings(db, kanban_access="all")
+    members_see(db)
     assert reader.get(f"/api/embed/kanban/{board}").status_code == 200
     assert reader.get(f"/api/embed/kanban/{board}/sync?since=0").status_code == 200
 

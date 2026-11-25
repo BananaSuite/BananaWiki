@@ -23,7 +23,6 @@ def _import_board(client, db, tickets, description=""):
 
 
 def _editor(client, make_user, login, db):
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'editor' WHERE id = 1")
     user = make_user("eve", role="editor")
     login(client, user)
     return user
@@ -265,7 +264,6 @@ def _small_canvas_budget(monkeypatch, db):
     from bananawiki.wiki.features.canvas import service
 
     monkeypatch.setattr(service, "STORED_MIB_PER_DAY", 1)  # 1 MB a day stands for 128 MB
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     return service
 
 
@@ -334,7 +332,6 @@ def test_qw3_4_an_administrator_out_of_budget_can_still_delete_an_account(app, c
     from bananawiki.wiki import accounts
     from bananawiki.wiki.features.kanban import history
 
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'editor' WHERE id = 1")
     carol, bob = make_user("carol", role="editor"), make_user("bob", role="editor")
     login(client, carol)
     board_id, ticket = _import_board(client, db, 10, "y" * 9_900)  # about 100 KB
@@ -360,7 +357,6 @@ def test_qw3_4_an_administrator_out_of_budget_can_still_delete_an_account(app, c
 def test_qw3_4_small_canvases_are_charged_by_the_byte(client, make_user, login, db):
     from bananawiki.wiki.features.canvas import service
 
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     login(client, make_user("eve", role="editor"))
     for n in range(10):  # 60 KB each, under the 64 KB that cost nothing before
         slug = client.post("/canvas/create", data={"title": f"c{n}"}).headers["Location"].rstrip("/").split("/")[-1]

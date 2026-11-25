@@ -137,6 +137,7 @@ def test_template_labels_follow_the_language(app):
 
 
 def test_creating_from_a_template_needs_create_rights(client, login, make_user, db):
+    db.execute("INSERT INTO base_role_permissions VALUES ('user', 'canvas.create', 0)")
     login(client, make_user("plain1"))
     assert client.post("/canvas/create", data={"title": "X", "template": "swot"}).status_code == 403
     assert db.scalar("SELECT COUNT(*) FROM canvas__layouts") == 0
@@ -230,7 +231,7 @@ def test_editor_page_offers_the_layout_and_export_tools(app, editor, canvas, mak
                    'data-action="export-png"', 'data-minimap', 'name="route"', 'value="hexagon"',
                    "canvas-export.js"):
         assert marker in html, marker
-    viewer = make_user("viewer1", role="editor")
+    viewer = make_user("viewer1")  # a member: editors hold canvas.edit_all
     db.execute("INSERT INTO canvas__permissions (layout_id, user_id, permission) VALUES (?, ?, 'view')",
                (canvas["id"], viewer["id"]))
     client.get("/logout")

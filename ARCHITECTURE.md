@@ -249,7 +249,7 @@ Return `Markup` (or a string of already-escaped HTML); render with
 | `account.settings_sections` | account settings | — |
 | `account.display_sections` | display preferences (**Customise**), below the preferences form | — |
 | `admin.dashboard` | admin dashboard | — |
-| `admin.appearance` | **Admin → Appearance**, after the site icon | — |
+| `admin.appearance` | **Admin → Appearance**, after the site icon; settings fields join the page's one form with `form="appearance-form"` and are stored through the `admin.appearance.save` interceptor | — |
 | `admin.user_detail` | Admin > Users > one account | `target` |
 | `error.card` | error pages, inside the card | `code` |
 
@@ -277,6 +277,7 @@ feature's id and stops the action.
 | `page.render` | pages, when rendering a page body | `page` (with content) | `Markup` replacing the Markdown body (page builder pages), or `None` |
 | `account.pending_step` | the request pipeline (`app.py`), for signed-in accounts outside impersonation, after the password-change and onboarding steps | `user` | endpoint the account must complete first (two-step set-up required of administrators), or `None` |
 | `feature.switch` | `registry.set_enabled` (and `registry.switch_refusal`, which the onboarding wizard asks to leave out what it may not switch), before switching a built-in feature | `feature_id`, `enabled` | translation key refusing the switch (`registry.SwitchRefused`; the audit log refuses to be switched off by plain administrators), or `None` |
+| `admin.appearance.save` | site_admin, when **Admin → Appearance**'s one Save is pressed, after the colours are checked and before they are stored | `form` (the submitted form) | `None` once the feature stored its fields (or the form has none of them), or a response (the page again with the problems, 400) that stops the save: the colours are not stored either |
 | `feature.switched` | `registry.set_enabled` through `registry.prepare`, inside its transaction, when the switch changed whether the feature is enabled | `feature_id`, `enabled` | ignored (the audit log records `plugin.enabled` or `plugin.disabled`, also while it is off) |
 
 ### Background jobs
@@ -296,8 +297,30 @@ context with a database connection (`db` works). Operators can also run
 * `accounts.py` - create accounts, change passwords, rename, delete.
 * `auth.py` - `current_user()`, `has_permission()`, `has_role()`,
   `is_admin()`, `can_read_category()`, `can_write_category()`,
-  `revoke_sessions()`, decorators.
-* `settings.py` - `load()`, `get()`, `update()`, `public_mode_active()`.
+  `holders_of()`, `role_defaults()`, `revoke_sessions()`, decorators;
+  `on_behalf()` (impersonation, or a hosting administrator acting as the
+  account: `acting()`) for the account's own decisions, and
+  `reverified_recently()` (a confirmation with BananaWiki Hosting).
+  A form asking for the account's password uses the `current_password`
+  macro of `users/_macros.html` and checks it with
+  `features/users/service.password_ok`, which also takes that confirmation
+  and refuses while someone acts on the account's behalf.
+* `permissions.py` - the one authority for who may do what: the catalogue,
+  base roles (with the wiki's own defaults, `base_role_permissions`), custom
+  roles and individual permissions, and category access. Pages, Kanban boards
+  and canvases share the verbs view, create, edit own, delete own, share own,
+  edit all and delete all. `editor_only` keys (categories, history, hiding,
+  reviewing proposed edits, taking over drafts, others' files, invite codes)
+  are never granted to the `user` role. No site setting grants or withholds
+  what a permission decides; a feature's switch only turns the whole feature
+  off.
+* `sharing.py` - who sees a board or a canvas: its visibility (`private`,
+  `members`, `public`) and shares (person or role, `view` or `edit`), checked
+  with the `<kind>.*` permissions. Kanban and canvas keep their own tables and
+  call it.
+* `settings.py` - `load()`, `get()`, `update()`, `public_mode_active()`;
+  `FIXED` lists settings that are no longer offered and their value (some
+  with an environment override).
 * `storage.py` - `save()`, `send()`, `resolve()`, `delete()`.
 * `markdown.py` - `render()`, `highlight_code()`, `to_plain_text()`, `excerpt()`.
 * `attention.py` - `created()`, `decided()`, `items()`, `badge()` (see above).
@@ -354,11 +377,19 @@ used, so bookmarks and links in page content keep working.
   Feature CSS goes in the feature's static folder and defines feature layout.
 * Use the shared form macros, button classes and `section-stack` (settings
   use `form-section` inside it); `card` only for standalone surfaces.
-* A settings page has one Save, in its header: give the form an `id`, the
-  header the class `page-header--save` and put `forms.page_save('<form id>')`
-  in it. Do not add a Save per section. A lone switch applies on change with
-  `data-autosubmit` and keeps a button inside `<noscript>`. A settings section
-  a feature adds to another page marks its own button `form-save`.
+* A settings page has one Save, at the top right of its sticky header: give
+  the form an `id`, the header the class `page-header--save` and put
+  `forms.page_save('<form id>')` in it. Never add a Save at the bottom, one
+  per section or one per row, and never hide a second one with CSS: fields
+  elsewhere on the page join the form with `form="<form id>"`, and a page
+  with several settings saves them all from that form. A lone switch on a
+  page without a Save applies on change with `data-autosubmit` and keeps a
+  button inside `<noscript>`. A settings section a feature adds to another
+  page has no button: its fields join the page's form (on Appearance,
+  `form="appearance-form"`, stored through the `admin.appearance.save`
+  interceptor). Actions (delete, revoke, upload, change role…) are named for
+  what they do, never "Save". `tests/features/test_single_save.py` and
+  `tests/hosting/test_single_save.py` check the settings pages.
 * Pages must work at 360 px wide and with the keyboard alone.
 
 ## Rules

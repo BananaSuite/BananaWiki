@@ -6,14 +6,10 @@ from flask import jsonify
 
 from .... import settings
 from ...audit import record
-from ...kanban import service as kanban_service
 from ...page_governance import protection
 from .. import settings_rules
 from ..errors import ApiError, json_body
 from . import bp, ok, require_admin, requires
-
-KANBAN_ACCESS = frozenset({"kanban_access", "kanban_write_access", "kanban_open_access",
-                           "kanban_public_access_enabled"})
 
 
 @bp.get("/settings")
@@ -41,8 +37,6 @@ def update_settings():
     if updates:
         settings.update(settings_rules.with_companions(updates))
         record("settings.updated", details={"changed": ", ".join(sorted(updates)), "via": "api"})  # as the form does
-        if KANBAN_ACCESS.intersection(updates):
-            kanban_service.apply_global_settings()  # as the board settings form does
         if "page_protection_enabled" in updates:
             protection.record_switch(updates["page_protection_enabled"])  # as its admin page does
     return ok(updated=sorted(updates))

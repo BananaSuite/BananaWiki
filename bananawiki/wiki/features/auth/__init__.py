@@ -6,6 +6,7 @@ from . import (  # noqa: F401 - the route modules register views
     jobs,
     onboarding,
     platform_oauth,
+    reauth,
     routes,
     routes_oauth,
     routes_onboarding,

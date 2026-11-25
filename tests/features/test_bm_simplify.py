@@ -117,24 +117,6 @@ def test_people_outside_bm_mode_see_everything(app, make_user, login):
     assert "All settings" not in settings_page
 
 
-def test_each_new_simplification_can_be_switched_off(easy, make_user, login):
-    from .test_bm_mode import ALL_SIMPLIFICATIONS
-
-    admin = easy.test_client()
-    login(admin, make_user("chief", role="admin"))
-    off = ("users.simple_settings", "pages.simple_sidebar", "pages.simple_reading", "difficulty_tags.hide_tags")
-    data = {"bm_mode": "1", **{f"simplify_{item}": "1" for item in ALL_SIMPLIFICATIONS if item not in off},
-            "feature_kanban": "1", "feature_canvas": "1", "feature_difficulty_tags": "1", "feature_page_history": "1"}
-    assert admin.post("/admin/bm-mode", data=data).status_code == 302
-    with easy.app_context(), connection_scope() as session:
-        session.execute("INSERT INTO pages (title, slug, content, difficulty_tag) VALUES ('Notes', 'notes', 'hi', 'expert')")
-    client = _full_client(easy, make_user, login)
-    page = client.get("/page/notes").get_data(as_text=True)
-    assert READING_RULE not in page and TAGS_RULE not in page and 'data-dialog-open="dlg-difficulty-tag"' in page
-    assert 'href="/users"' in page[page.index('id="sidebar"'):]
-    assert SETTINGS_RULE not in client.get("/settings").get_data(as_text=True)
-
-
 def test_a_merge_waiting_for_someone_shows_the_whole_settings_page(app, make_user, login, db):
     """Their only way to confirm is the button the short page hides."""
     member, other = make_user("member", bm_mode=1), make_user("other")
@@ -154,8 +136,9 @@ def test_an_app_the_administrators_chose_to_show_stays_in_the_short_sidebar(app,
     assert 'href="/chats"' not in client.get("/").get_data(as_text=True), "Chat is hidden in BM mode by default"
     admin_client = app.test_client()
     login(admin_client, admin)
-    admin_client.post("/admin/bm-mode", data={"feature_chat": "1", "feature_kanban": "1", "feature_canvas": "1",
-                                              "bm_self_service": "1"} | {
-        f"simplify_{item}": "1" for item in ("pages.simple_sidebar", "users.simple_settings")})
+    from bananawiki.wiki import bm
+
+    with app.test_request_context(), connection_scope():
+        bm.show_feature("chat")  # what switching it on under Admin → Plugins does while it is hidden in BM mode
     page = client.get("/").get_data(as_text=True)
     assert 'href="/chats"' in page, "shown in BM mode on purpose: its link stays, or it could not be reached"

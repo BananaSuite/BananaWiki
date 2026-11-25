@@ -16,11 +16,11 @@ section, then the 1.7.0 to 1.7.1, 1.7.1 to 1.7.2, 1.7.2 to 1.7.3, 1.7.3 to
 
 ## Upgrading from 1.8.0 to unreleased
 
-The first start migrates the wiki database from schema 19 to 21 (and the hosting
-portal's from 11 to 13, see below): how members
+The first start migrates the wiki database from schema 19 to 26 (and the hosting
+portal's from 11 to 16, see below): how members
 sign in (`site_settings.signin_mode`, `both` on every existing wiki, which is
 the behaviour of 1.8.0), then the easter eggs (`site_settings.easter_egg_configs`
-and `easter_egg_finds`). Afterwards 1.8.0 cannot open the database, so back up
+and `easter_egg_finds`), then the site icon switch (retired). Afterwards 1.8.0 cannot open the database, so back up
 first (`sudo bananawiki backup` on a managed server) if you may want to go back.
 Behaviour that changes:
 
@@ -57,6 +57,159 @@ Behaviour that changes:
   (`goto_chat_url`, `goto_git_url`, empty). Set them under
   **Admin → Settings → Other apps**; until then the menu lists only the main
   wikis that are online (and is hidden when there are none).
+* **Hosting portal, schema 13 to 14** (portal operators). Administrator
+  approval is no longer also a sign-up mode: **Settings → Sign-ups** has the
+  mode (*Open*, *Invite code*, *Closed*) and one box, **New accounts wait for
+  administrator approval**, that works with *Open* and *Invite code*. A
+  platform in the old mode *Administrator approval* becomes *Open* with the
+  box ticked, which is what that mode did. `POST /admin/signup-mode`,
+  `bananawiki hosting-admin settings signup-mode` and
+  `HOSTING_DEFAULT_SIGNUP_MODE` still accept `approval` with that meaning;
+  the command also takes `--approval on|off`. Settings → Wiki features asks
+  one question per feature (every owner, owners who ask and get it at once,
+  owners who ask and wait for an administrator) instead of two boxes; the
+  stored values are the same.
+* **Hosting portal, schema 15 to 16** (portal operators). **Settings → Read-aloud
+  server** no longer has a "Use a remote GPU server" box: hosted wikis use
+  the GPU server whenever its address is saved. Where the box was off, the
+  stored address is emptied, so nothing changes.
+* **Site icon** (wiki schema 22). **Admin → Appearance → Site icon** no
+  longer has a separate on/off switch: the icon selected is the one browsers
+  show. A wiki where the switch was off showed the yellow banana, so that
+  icon is now selected. `favicon_enabled` is refused by `PUT /api/v1/settings`
+  as retired; select `favicon_type` instead.
+* **Permissions** (wiki schema 23). Who may do what is decided by the
+  permissions alone (see [permissions](docs/permissions.md)). Pages, boards
+  and canvases have the same verbs: view, create, edit own, delete own, share
+  own (boards and canvases), edit all, delete all.
+  * **New for members:** accounts on the default permissions of the User role
+    may now create pages (in the categories they may write to) and edit and
+    delete the pages they create, save drafts and upload files, and create,
+    edit, delete and share their own boards and canvases. Pages created before
+    the upgrade have no recorded creator, so nobody gains rights over them.
+    To keep members from creating, untick the permissions under **Admin →
+    Roles → User**. Custom roles and individual permissions keep exactly what
+    they allowed (tick the new permissions there if wanted).
+  * **The defaults of User and Editor** can now be changed per wiki
+    (**Admin → Roles**); the upgrade stores what reproduces your old
+    settings, see the list below.
+  * **Retired settings and how they were translated**
+    (`bananawiki/wiki/migrations/v23_permissions.py` has the details):
+
+    | Old setting | Now |
+    |---|---|
+    | `kanban_write_access` (and `kanban_open_access`) | `kanban.edit_all` for the roles it reached, in the role defaults and in custom roles and individual sets that could open boards; taken from editors where it was `admin` |
+    | `kanban_access` (and open access) | each board's visibility: a `public` board seen by every member becomes `members`; one seen by editors only becomes `private` and is shared with the editor role; one seen by administrators only becomes `private`. Role shares for roles the setting did not reach are deleted (they did nothing) |
+    | `kanban_public_access_enabled` | a `public` board stays `public` where visitors could already read it (or every member saw it); otherwise it is lowered as above |
+    | `canvas_access`, `canvas_public_access_enabled` | as for boards |
+    | `canvas_open_access` | `canvas.edit_all` for both roles, and canvases neither public nor archived become `members` |
+    | `canvas_write_access` | nothing to keep: members may create canvases now; `canvas.create` in custom roles and individual sets stays as chosen |
+    | `page_builder_access` | `page.use_builder` for the roles it reached |
+    | chat switches: direct messages, starting conversations, group chats, creating groups, files | `chat.dm` (and `chat.start_dm`), `chat.start_dm`, `chat.group` (and `chat.create_group`), `chat.create_group`, `chat.upload` taken from members and editors where a switch was off |
+    | `api_service_enabled` | the REST API plugin is switched off where it was off |
+    | `page.delete` (stored permission) | `page.delete_all` |
+    | Kanban `write` shares, `shared` visibility | `edit` shares, `private` visibility (it meant the same) |
+    | canvas `none` refusals | dropped; where one kept someone out, the canvas becomes `private` and is shared with exactly the accounts that could open it, at their level |
+
+  * Editors whose reading was limited to some categories but whose writing
+    was not read every category (writing implied reading); their read limit
+    is lifted. Writing without a limit now means writing wherever one may
+    read, for members and editors.
+  * New boards and canvases are private to their creator until shared.
+  * **Admin → Users → Editor access** is gone: limit where someone writes on
+    their **Permissions** page. The canvas settings page, the Kanban settings
+    dialog and the page builder's settings page are gone too.
+  * Boards and canvases ordered under open access keep that order for members
+    until they arrange their own.
+  * API: board and canvas `visibility` takes `private`, `members` or
+    `public`; share levels are `view` and `edit` (Kanban accepts `write` as
+    `edit`); payloads gain `can_delete`. The retired settings are refused by
+    `PUT /api/v1/settings`.
+* **Fewer settings** (wiki schema 24). Settings few administrators changed are
+  no longer offered; most have a fixed value, the stored one is kept unused:
+
+  | Setting | Now |
+  |---|---|
+  | `tts_enabled_languages` | the wiki's interface languages, or `BW_TTS_LANGUAGES` |
+  | `tts_performance_mode`, `tts_gpu_timeout` | `auto`, 120 s, or `BW_TTS_PERFORMANCE_MODE`, `BW_TTS_REMOTE_GPU_TIMEOUT` |
+  | `tts_gpu_enabled` | a saved GPU address is the switch; where it was off the address is emptied |
+  | BM mode's per-feature and per-simplification choices | features follow Admin → Plugins; every simplification applies |
+  | chat cleanup switches, schedule, 1.4 single policy | four numbers of days (0 keeps), daily at 03:00; the period that applied is kept |
+  | `chat_max_message_length` | 5000 |
+  | `profile_group_badges_enabled` | members choose per group |
+  | `public_mode_show_message` | the notice shows when there is one; where it was off the notice is emptied |
+  | `approval_pending_timeout_hours`, `approval_denied_timeout_hours` | never, 24 hours |
+  | `onboarding_replay_disabled`, `intro_role_switching_enabled`, `intro_role_switching_roles` | replay allowed, every role previewed |
+  | `markdown_export_enabled`, `profile_contribution_chart_enabled` | on |
+  | `quota_request_cooldown_hours`, `reservation_quota_auto_approve_max`, `contribution_quota_auto_approve_max`, `page_reservation_cooldown_hours` | no wait, every request reviewed, a day |
+  | `auto_logout_hour` | midnight (the daily sign-out stays a switch) |
+  | `interface_language_fallback` | English |
+  | `attention_email_interval_minutes`, `attention_email_daily_hour` | hourly digests, daily at 08:00 |
+  | `audit_log_retention_days` | 365, or `BW_AUDIT_RETENTION_DAYS` |
+  | `api_service_rate_limit`, `api_service_admin_rate_limit`, `api_service_max_tokens_per_user`, `api_service_webhook_max_failures` | 60, 120, 5, 20, or `BW_API_RATE_LIMIT`, `BW_API_ADMIN_RATE_LIMIT`, `BW_API_MAX_TOKENS_PER_USER`, `BW_API_WEBHOOK_MAX_FAILURES` |
+  | appearance: secondary, accent, text, sidebar and background colours | kept as stored; changed with a theme file |
+
+  `PUT /api/v1/settings` refuses these keys as retired.
+* **Invite codes** keep their role under open sign-up; the code is optional
+  there and a wrong one is refused.
+* **Admin menu** groups: People and permissions, Content, Features,
+  Appearance, System. Site settings have four tabs (General, Access,
+  Security, Uploads); the daily sign-out moved there from Sessions.
+* **Sign-in with BananaWiki Hosting** (wiki schema 25, portal schema 15; the
+  BananaSuite sign-in round 3, see [hosting](docs/hosting.md#platform-sign-in)):
+  * Wiki accounts made through the portal's sign-in get `password_set = 0`;
+    existing ones are found once (linked within a minute of being created,
+    never signed in with a password, never given one). They confirm sensitive
+    changes with the portal and can set a password under **Settings →
+    Security → Sign-in methods**, which now holds the portal connection, the
+    password, two-step codes and the email address in one section
+    (`/settings/link-platform-account` leads there).
+  * **A sign-in through the portal no longer asks for the wiki's two-step
+    code**, nor makes administrators set one up: the portal asks for its own.
+    Password sign-ins ask as before. Turn on the portal's
+    **Require two-step verification for administrators** if wiki
+    administrators must always pass a second factor.
+  * Every form that asks for the password before a change also offers
+    **Confirm with BananaWiki Hosting** to connected accounts. It needs a
+    portal that sends `auth_time` (this release): an older portal never
+    confirms, and the password keeps working.
+  * **Acting administrators** (portal operators). Starting to act as an
+    account (**Admin → an account → Act as this user**) now needs your
+    password (or a two-step code) and a reason, ends by itself after
+    `admin_act_minutes` (30), and is in the moderation log from start to end.
+    Acting that was going on during the update ends at the first request.
+    Signing in to wikis and apps while acting stays off until you tick
+    **Settings → Acting as an account → Administrators may sign in to wikis
+    and apps while acting as an account**; each wiki can still refuse it
+    (**Admin → Site settings → Security → Allow hosting administrators to
+    sign in as users**, on by default). Scripts that `POST
+    /admin/accounts/<id>/impersonate` must send `current_password` (or
+    `code`) and `reason`.
+  * The runtime agent allows three new tenant tasks (`list_links`,
+    `link_users`, `unlink_user`) for **Admin → a wiki → Account links**: it
+    is updated with the release (`banana update`); until the agent runs the
+    new code the page says the runtime is unavailable.
+  * API tokens of administrators can carry the new scope `accounts:lookup`
+    (`/api/v1/admin/accounts/lookup`, for the linking tools of BananaChat and
+    BananaGit).
+* **A person's own permissions** (wiki schema 26). An account's own
+  permissions (**Admin → Users → (account) → Permissions**) are now changes to
+  what its role gives, and the rest keeps following the role's defaults or
+  custom role; custom role holders can have them too. Until now, saving that
+  page made a full copy that no longer followed the role. The upgrade keeps
+  every such account's access exactly as it was (each permission is stored as
+  its own change); to let one follow its role again, open its page and click
+  **Remove their own changes**, or save it with the boxes you want. Scripts
+  that wrote `user_permissions` rows directly must set `granted` (1 adds, 0
+  takes away) and no longer need `user_category_access` rows to make them
+  count.
+* **Asking for edit access** (wiki schema 26) is new and off: tick **Let
+  people ask for edit access** under **Admin → People → Access requests**
+  to offer it (see [permissions](docs/permissions.md#asking-for-edit-access)).
+* **Hosting portal fixes.** `MAX_INSTANCES_PER_ACCOUNT=0` now means no limit
+  per account (it refused every customer's wiki; to keep customers from
+  creating wikis, close sign-ups or lower the platform's wiki limit). The address at
+  sign-up defaults to *not asked* everywhere, as new portals already stored.
 
 ## Upgrading from 1.7.6 to 1.8.0
 

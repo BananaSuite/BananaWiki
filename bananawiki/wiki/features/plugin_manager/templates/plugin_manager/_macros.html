@@ -1,3 +1,4 @@
+{% import "users/_macros.html" as account_macros with context %}
 {#- Shared pieces of the plugin pages. -#}
 {% import "macros/forms.html" as forms with context %}
 
@@ -33,10 +34,8 @@
 {%- endmacro %}
 
 {% macro password_field() -%}
-<div class="field">
-  <label for="f-password">{{ t('plugin_manager.field.password') }}</label>
-  <input id="f-password" name="password" type="password" required maxlength="1024" autocomplete="current-password">
-</div>
+{#- The administrator's password, or a recent confirmation with BananaWiki Hosting (users/_macros.html). -#}
+{{ account_macros.current_password('f-password', label=t('plugin_manager.field.password')) }}
 {%- endmacro %}
 
 {% macro full_privileges_warning() -%}

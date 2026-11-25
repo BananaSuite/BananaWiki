@@ -73,6 +73,6 @@ def platform_refusal(user: dict[str, Any] | None) -> str | None:
     """
     if not configured():
         return "auth.signin_mode.error.not_configured"
-    if user is None or auth.is_impersonating() or platform_oauth.link_of(user["id"]) is None:
+    if user is None or auth.on_behalf() or platform_oauth.link_of(user["id"]) is None:
         return "auth.signin_mode.error.link_yours_first"
     return None

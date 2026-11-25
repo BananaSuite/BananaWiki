@@ -122,12 +122,12 @@ def test_new_items_emit_attention_created(app, people, page, db):
     assert sources == ["contributions.reviews", "page_governance.quota_requests", "admin.signups"]
 
 
-def test_automatic_quota_approval_is_not_a_request(app, people, db):
-    set_settings(app, reservation_quota_auto_approve_max=50)
+def test_quota_requests_always_wait_for_a_reviewer(app, people, db):
+    """Approving requests automatically below a size was retired in version 24: every request is reviewed."""
+    db.execute("UPDATE site_settings SET reservation_quota_auto_approve_max = 50")  # ignored
     with app.test_request_context(), connection_scope():
         row = reservation_quota.create_request(people["editor"]["id"], 20, "more pages")
-    assert row["status"] == "approved"
-    assert db.scalar("SELECT COUNT(*) FROM attention_events") == 0
+    assert row["status"] == "pending"
 
 
 # The red dot, the menu, the dashboard
@@ -316,18 +316,17 @@ def test_admin_saves_notification_settings(admin_client, db):
     assert admin_client.get("/admin/notifications").status_code == 200
     admin_client.post("/admin/notifications", data={
         "section": "notifications", "attention_email_enabled": "1", "attention_email_mode": "daily",
-        "attention_email_interval_minutes": "30", "attention_email_daily_hour": "7",
         "decision_email_enabled": "1", "public_base_url": "https://wiki.example.org/",
     })
-    row = db.one("SELECT attention_email_enabled, attention_email_mode, attention_email_interval_minutes, "
-                 "attention_email_daily_hour, decision_email_enabled, public_base_url FROM site_settings")
-    assert row == {"attention_email_enabled": 1, "attention_email_mode": "daily",
-                   "attention_email_interval_minutes": 30, "attention_email_daily_hour": 7,
-                   "decision_email_enabled": 1, "public_base_url": "https://wiki.example.org"}
+    row = db.one("SELECT attention_email_enabled, attention_email_mode, decision_email_enabled, public_base_url "
+                 "FROM site_settings")
+    assert row == {"attention_email_enabled": 1, "attention_email_mode": "daily", "decision_email_enabled": 1,
+                   "public_base_url": "https://wiki.example.org"}
+    page = admin_client.get("/admin/notifications").get_data(as_text=True)
+    assert 'name="attention_email_interval_minutes"' not in page and 'name="attention_email_daily_hour"' not in page
 
 
-@pytest.mark.parametrize("field,value", [("attention_email_mode", "hourly"), ("attention_email_interval_minutes", "1"),
-                                         ("public_base_url", "javascript:alert(1)")])
+@pytest.mark.parametrize("field,value", [("attention_email_mode", "hourly"), ("public_base_url", "javascript:alert(1)")])
 def test_admin_settings_validation(admin_client, db, field, value):
     data = {"section": "notifications", "attention_email_mode": "digest", "attention_email_interval_minutes": "60",
             "attention_email_daily_hour": "8", "attention_email_enabled": "1", field: value}

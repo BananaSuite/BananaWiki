@@ -16,7 +16,13 @@ from .pages_support import in_app, set_feature
 
 
 def _board(app, owner, title="Roadmap"):
-    return in_app(app, lambda: service.create_board(owner, title))
+    """A board every member sees."""
+    def create():
+        board = service.create_board(owner, title)
+        service.set_visibility(board, "members")
+        return store.get_board(board["id"])
+
+    return in_app(app, create)
 
 
 def _ticket(app, board, user, title="Task", **data):
@@ -30,7 +36,7 @@ def _comment(app, ticket_id, user, text="Looks good"):
 
 @pytest.fixture
 def people(make_user, db):
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'all' WHERE id = 1")
+    db.execute("INSERT INTO base_role_permissions (role, permission_key, granted) VALUES ('user', 'kanban.edit_all', 1)")
     return {"admin": make_user("boss", role="admin"), "bob": make_user("bob"), "carol": make_user("carol")}
 
 

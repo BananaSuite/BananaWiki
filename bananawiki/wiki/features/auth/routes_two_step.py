@@ -152,7 +152,7 @@ def two_step_settings():
     """Set up, renew recovery codes or turn off; also where required administrators are sent."""
     from ..users.service import ProfileError
 
-    if auth.is_impersonating():
+    if auth.on_behalf():
         abort(403)
     user = auth.current_user()
     if request.method == "POST":
@@ -181,7 +181,7 @@ def two_step_settings():
 @auth.admin_required
 def two_step_reset(user_id: str):
     """For an account that lost its authenticator app and its recovery codes."""
-    if auth.is_impersonating():
+    if auth.on_behalf():
         abort(403)
     target = accounts.by_id(user_id)
     if target is None:

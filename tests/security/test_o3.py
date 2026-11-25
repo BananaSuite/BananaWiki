@@ -23,7 +23,6 @@ def _import(client, db, document) -> tuple[int, int]:
 
 
 def test_ow3_1_history_entry_renders_descriptions_within_a_budget(app, client, make_user, login, db, monkeypatch):
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'editor' WHERE id = 1")
     monkeypatch.setattr(history, "MAX_SNAPSHOT_RENDER_CHARS", 100)
     tickets = [{"title": f"T{i}", "description": f"**bold {i}** " + "x" * 30} for i in range(8)]
     login(client, make_user("eddie", role="editor"))
@@ -37,7 +36,6 @@ def test_ow3_1_history_entry_renders_descriptions_within_a_budget(app, client, m
 
 
 def test_ow3_1_history_pages_are_rate_limited(app, client, make_user, login, db, frozen_limiter_clock):
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'editor' WHERE id = 1")
     login(client, make_user("eddie", role="editor"))
     board_id, entry_id = _import(client, db, {"title": "B", "columns": [{"title": "C", "tickets": [{"title": "T"}]}]})
     reader = app.test_client()
@@ -63,12 +61,13 @@ def _impersonated_entries(db, since: int) -> list[tuple]:
 
 
 def test_ow3_3_kanban_and_profile_changes_while_impersonating_are_audited(app, make_user, login, db):
-    db.execute("UPDATE site_settings SET kanban_access = 'all', kanban_write_access = 'all' WHERE id = 1")
     bob = make_user("bob")
     carol = app.test_client()
     login(carol, make_user("carol", role="editor"))
     assert carol.post("/kanban/create", data={"title": "Payments"}).status_code == 302
     board = db.scalar("SELECT id FROM kanban_boards")
+    db.execute("UPDATE kanban_boards SET visibility = 'members'")
+    db.execute("INSERT INTO base_role_permissions VALUES ('user', 'kanban.edit_all', 1)")  # members edit it too
     column = db.scalar("SELECT id FROM kanban_columns WHERE board_id = ? ORDER BY sort_order", (board,))
     ticket = carol.post(f"/api/kanban/columns/{column}/tickets", json={"title": "Invoice 42"}).get_json()["id"]
     admin_user = make_user("ada", role="admin")
@@ -99,7 +98,6 @@ def test_ow3_3_canvas_changes_while_impersonating_are_audited(app, make_user, lo
     from bananawiki.wiki.db import connection_scope
     from bananawiki.wiki.features.canvas import service as canvases
 
-    db.execute("UPDATE site_settings SET canvas_access = 'all', canvas_write_access = 'editor' WHERE id = 1")
     dora = make_user("dora", role="editor")
     with app.test_request_context(), connection_scope():
         canvas = canvases.create("Plan", "", dora["id"])
@@ -122,7 +120,6 @@ def test_ow3_3_canvas_changes_while_impersonating_are_audited(app, make_user, lo
 def test_ow3_5_board_order_stores_only_the_boards_placed(app, make_user, login, db, monkeypatch):
     from bananawiki.wiki.features.kanban import service as kanban
 
-    db.execute("UPDATE site_settings SET kanban_access = 'all' WHERE id = 1")
     owner = make_user("owner", role="editor")
     db.executemany("INSERT INTO kanban_boards (title, created_by, visibility, created_at) VALUES (?, ?, 'public', ?)",
                    [(f"Board {i}", owner["id"], f"2026-01-01 00:{i // 60:02d}:{i % 60:02d}") for i in range(300)])

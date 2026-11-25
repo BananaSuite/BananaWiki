@@ -11,7 +11,7 @@ import time
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, session, url_for
 
 from ...core.web import client_ip, client_network, safe_next
-from .. import accounts, auth, mfa, notifications, settings
+from .. import accounts, auth, mfa, notifications, oauth, settings
 from .. import email as hosting_email
 from ..db import _session
 from ..email import RECOVERY_REQUESTS_PER_IPV6_SITE, RECOVERY_REQUESTS_PER_NETWORK
@@ -77,6 +77,12 @@ def bot_blocked() -> bool:
     return age < current_app.config["HOSTING"].min_form_seconds or age > _MAX_FORM_AGE
 
 
+def _login_page(**context):
+    """The sign-in form; it links to sign-up while sign-up is not closed (with the same next)."""
+    return render_template("hosting/auth/login.html", form_time=form_token(),
+                           signup_offered=settings.signup_mode() != "closed", **context)
+
+
 def _redirect_if_signed_in():
     return redirect(url_for("dashboard.dashboard")) if auth.current_account() else None
 
@@ -105,19 +111,22 @@ def complete_login(account: dict, next_url: str | None, method: str):
 @auth.public
 @auth.exempt(*auth.GATES)
 def login():
-    signed_in = _redirect_if_signed_in()
+    # "Sign in again" (again=1): a wiki or an app asked for a fresh sign-in (prompt=login, max_age), so the
+    # form is shown to a signed-in account too. Its session ends only once the password is right.
+    again = request.values.get("again") == "1" and auth.current_account() is not None and not auth.impersonating()
+    signed_in = None if again else _redirect_if_signed_in()
     if signed_in:
         return signed_in
     next_url = request.values.get("next") or ""
     if request.method == "GET":
-        return render_template("hosting/auth/login.html", form_time=form_token(), next_url=next_url)
+        current = auth.current_account()
+        return _login_page(next_url=next_url, again=again, username=current["username"] if again and current else "")
     username = (request.form.get("username") or "").strip()[:60]
     password = request.form.get("password") or ""
 
     def refuse(key: str, status: int):
         flash(t(key), "error")
-        return render_template("hosting/auth/login.html", form_time=form_token(), next_url=next_url,
-                               username=username), status
+        return _login_page(next_url=next_url, username=username, again=again), status
 
     if bot_blocked():
         return refuse("hosting.form.rejected", 400)
@@ -159,6 +168,8 @@ def login():
             limiter.release(reservation)
         for key, bucket, _limit in sign_ins:
             limiter.record(key, bucket)
+    if again:
+        auth.revoke_current_session()  # replaced by the fresh sign-in (or left behind at the code step)
     # The suspension page shows the reason and end date: with two-step
     # verification on, only after the second factor (login_mfa checks it).
     if account.get("totp_enabled"):  # type: ignore[union-attr]
@@ -274,9 +285,10 @@ def _bootstrap_allowed() -> bool | None:
 @auth.exempt(*auth.GATES)
 @rate_limit(5)
 def signup():
-    signed_in = _redirect_if_signed_in()
-    if signed_in:
-        return signed_in
+    # A wiki or an app asked for a new account (prompt=create): the request in next continues afterwards.
+    next_url = safe_next("", request.values.get("next"))
+    if auth.current_account():
+        return redirect(next_url or url_for("dashboard.dashboard"))
     from ..db import db
 
     first = not db.scalar("SELECT 1 FROM accounts LIMIT 1")
@@ -287,8 +299,12 @@ def signup():
         if not allowed:
             abort(404)
     mode = "open" if first else settings.signup_mode()
+    if mode == "closed" and next_url and request.method == "GET":
+        # Sent to sign up from elsewhere: the sign-in form, with a line saying why there is no sign-up form.
+        return _login_page(next_url=next_url, again=False, username="", signup_closed=True)
     approval = not first and settings.approval_required()
     context = {
+        "next_url": next_url, "continuing": oauth.continuing_client(next_url),
         "first": first, "mode": mode, "approval": approval, "form_time": form_token(),
         "ask_email": settings.signup_email() != "off",
         "email_required": settings.signup_email() == "required",
@@ -335,7 +351,11 @@ def signup():
     else:
         flash(t("hosting.signup.created"), "success")
     gate = auth.pending_gate(account, None)
-    return redirect(url_for(gate or "dashboard.dashboard"))
+    if gate:
+        # Its pages offer the way back to the wiki or app the sign-up came from.
+        oauth.remember_signup_return(next_url)
+        return redirect(url_for(gate, next=next_url or None) if gate == "account.contact_email" else url_for(gate))
+    return redirect(next_url or url_for("dashboard.dashboard"))
 
 
 # Recovery
@@ -463,7 +483,9 @@ def verify_email():
     flash(t("hosting.verify.done"), "success")
     current = auth.current_account()
     if current and current["id"] == account["id"]:
-        return redirect(url_for("dashboard.dashboard"))
+        # A new account from a wiki's or an app's sign-up continues there, if nothing else waits.
+        resume = oauth.resume_signup() if not auth.pending_gate(account, None) else None
+        return redirect(resume or url_for("dashboard.dashboard"))
     return redirect(url_for("auth.login"))
 
 

@@ -27,7 +27,7 @@ needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
 STATIC = Path(service.__file__).parent / "static"
 MINI_DOM = Path(__file__).with_name("mini_dom.js")
-ADD_BELOW_HELP = "Shift+Enter adds a matching note below the focused element"
+ADD_BELOW_HELP = "Shift+Enter adds a connected note below the focused element"
 
 
 @pytest.fixture

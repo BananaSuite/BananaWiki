@@ -12,7 +12,7 @@ Una scheda ha una descrizione in Markdown, etichette, una priorità, una scadenz
 
 ## Accesso e condivisione
 
-Gli amministratori decidono quali ruoli possono usare Kanban. Chi ha creato la bacheca la condivide con persone o ruoli, in lettura o in scrittura, da **Altro → Condivisione**.
+I membri creano bacheche e gestiscono le proprie. Una bacheca nuova la vede solo chi l'ha creata; da **Altro → Condivisione** la si rende visibile a tutti i membri (o anche ai visitatori mentre il wiki è pubblico) e la si condivide con persone o ruoli, in lettura o in modifica. Gli editor modificano ogni bacheca che possono aprire. Gli amministratori cambiano queste impostazioni in **Amministrazione → Ruoli**.
 
 ## Cronologia ed esportazione
 

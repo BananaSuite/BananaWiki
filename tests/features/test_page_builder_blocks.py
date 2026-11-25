@@ -33,7 +33,8 @@ V2 = {"version": 2, "blocks": [
 
 @pytest.fixture
 def builder_on(db):
-    db.execute("UPDATE site_settings SET page_builder_enabled = 1, page_builder_access = 'editor'")
+    db.execute("UPDATE site_settings SET page_builder_enabled = 1")
+    db.execute("INSERT OR REPLACE INTO base_role_permissions VALUES ('editor', 'page.use_builder', 1)")
 
 
 @pytest.fixture

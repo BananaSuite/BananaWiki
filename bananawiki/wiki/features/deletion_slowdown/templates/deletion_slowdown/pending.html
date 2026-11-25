@@ -2,7 +2,7 @@
 {% import "macros/forms.html" as forms with context %}
 {% block title %}{{ t('deletion_slowdown.title') }}{% endblock %}
 {% block admin_content %}
-<header class="page-header"><h1>{{ t('deletion_slowdown.title') }}</h1></header>
+<header class="page-header page-header--save"><h1>{{ t('deletion_slowdown.title') }}</h1>{{ forms.page_save('deletion-settings-form') }}</header>
 <p class="muted">{{ t('deletion_slowdown.intro', hours=grace_hours) }}</p>
 <div class="stack">
 <section class="card">
@@ -28,10 +28,9 @@
 </section>
 <section class="card" id="docs-bypass">
   <h2>{{ t('deletion_slowdown.settings') }}</h2>
-  <form method="post" action="{{ url_for('deletion_slowdown.save_settings') }}" class="form">
+  <form method="post" action="{{ url_for('deletion_slowdown.save_settings') }}" class="form" id="deletion-settings-form">
     {{ forms.csrf() }}
     {{ forms.checkbox('docs_bypass_deletion_slowdown', t('deletion_slowdown.docs_bypass'), checked=docs_bypass, hint=t('deletion_slowdown.docs_bypass_hint')) }}
-    <div class="btn-row"><button class="btn btn--primary" type="submit">{{ t('common.save') }}</button></div>
   </form>
 </section>
 </div>

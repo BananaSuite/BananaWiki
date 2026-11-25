@@ -429,14 +429,14 @@ def test_administrators_are_told_when_wikis_run_without_hard_quotas(portal, runt
     assert "BW_HOSTING_TENANT_QUOTAS=<wbr>auto" in shown and "prjquota" in shown and EXT4 in shown
     assert "no longer available" not in shown and "Wikis cannot start" not in shown
     # It states the trade-off: the limit is only checked, so a wiki can fill the shared disk between two checks.
-    assert "is still checked" in shown and "still enforced" not in shown and "fill the disk between checks" in shown
+    assert "still enforced" not in shown and "fill the disk between the 5-minute checks" in shown
     # Neutral about the cause (the storage, or services under units an older controller wrote): status says which.
     assert "sudo bananawiki status" in shown
     # Lost: the loss is named, as a warning.
     runtime.storage = dict(LOST_STORAGE)
     shown = banner(client)
     assert 'class="alert alert--warning" id="storage-protection"' in shown
-    assert "Hard per-wiki storage quotas stopped working on this server" in shown
+    assert "Hard storage quotas stopped working" in shown
     assert f'Server detail: <span lang="en">{EXT4}</span>' in shown
     assert "fill the disk" in shown and "sudo bananawiki restart" in shown and "prjquota" in shown
     # Refused only under required, the operator's explicit opt-in.
@@ -449,9 +449,9 @@ def test_administrators_are_told_when_wikis_run_without_hard_quotas(portal, runt
     runtime.storage = dict(OFF)
     shown = banner(client)
     assert 'class="alert alert--info" id="storage-protection"' in shown
-    assert "Hard per-wiki storage quotas are switched off on this server" in shown
+    assert "Hard storage quotas are off" in shown
     assert "config set tenant-quotas auto" in shown and "turns them off" not in shown
-    assert "fill the disk between checks" in shown
+    assert "fill the disk between the 5-minute checks" in shown
     # An agent from before the lost flag: as never enforced.
     runtime.storage = {key: value for key, value in NEVER.items() if key != "lost"}
     assert "alert--info" in banner(client)
@@ -471,13 +471,13 @@ def test_the_storage_banner_wraps_settings_and_paths_on_a_phone(portal):
 
 
 @pytest.mark.parametrize(("language", "never", "lost", "refused", "off", "fill", "detail"), [
-    ("it", "Su questo server le wiki non hanno quote rigide di spazio",
-     "Le quote rigide di spazio per ogni wiki hanno smesso di funzionare su questo server",
-     "Le wiki non possono avviarsi", "Le quote rigide di spazio per ogni wiki sono disattivate su questo server",
+    ("it", "Nessuna quota rigida di spazio su questo server",
+     "Le quote rigide di spazio hanno smesso di funzionare",
+     "Le wiki non possono avviarsi", "Le quote rigide di spazio sono disattivate",
      "riempire il disco", "Dettaglio tecnico dal server:"),
-    ("de", "Auf diesem Server haben die Wikis keine festen Speicherkontingente",
-     "Feste Speicherkontingente pro Wiki funktionieren auf diesem Server nicht mehr",
-     "Wikis können nicht starten", "Feste Speicherkontingente pro Wiki sind auf diesem Server ausgeschaltet",
+    ("de", "Keine festen Speicherkontingente auf diesem Server",
+     "Feste Speicherkontingente funktionieren nicht mehr",
+     "Wikis können nicht starten", "Feste Speicherkontingente sind aus",
      "den Datenträger füllen", "Technische Angabe des Servers:"),
 ])
 def test_the_storage_notices_are_translated(portal, runtime, make_account, login, language, never, lost, refused,

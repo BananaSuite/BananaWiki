@@ -1,0 +1,3 @@
+{#- On the pages a new account may have to pass first: the way back to the wiki or app its sign-up came from. -#}
+{% set back = signup_return() %}
+{% if back %}<p>{{ tm('hosting.signup.back_to_app', app=link(back.url, back.name)) }}</p>{% endif %}

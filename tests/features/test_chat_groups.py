@@ -46,7 +46,7 @@ def test_create_validation(client, login, people, db):
     login(client, people["outsider"])
     assert client.post("/groups/new", data={"name": ""}).status_code == 400
     assert client.post("/groups/new", data={"name": "x" * 101}).status_code == 400
-    set_settings(db, chat_allow_group_creation=0)
+    db.executemany("INSERT OR REPLACE INTO base_role_permissions VALUES (?, 'chat.create_group', 0)", [("user",), ("editor",)])
     assert client.post("/groups/new", data={"name": "ok"}, headers=JSON).status_code == 403
 
 
@@ -143,7 +143,7 @@ def test_revoked_chat_access_cannot_moderate(client, login, group, people, db):
     assert post(client, group, "kick", user_id=people["member"]["id"]).status_code == 403
     assert post(client, group, "members/add", username="outsider").status_code == 403
     db.execute("UPDATE users SET chat_disabled = 0 WHERE id = ?", (people["mod"]["id"],))
-    set_settings(db, chat_group_enabled=0)
+    db.executemany("INSERT OR REPLACE INTO base_role_permissions VALUES (?, 'chat.group', 0)", [("user",), ("editor",)])
     assert post(client, group, "kick", user_id=people["member"]["id"]).status_code == 403
     assert role(db, group, people["member"]) == "member"
 

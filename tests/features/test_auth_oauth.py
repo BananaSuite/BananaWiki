@@ -282,21 +282,29 @@ def test_portal_failure_is_reported_without_details(oauth_client, portal):
     response = _callback(oauth_client, _start(oauth_client))
     assert response.headers["Location"].endswith("/login")
     page = oauth_client.get("/login")
-    # The theme's colours are in the page's <style> (#8a6500 has "500" in it); the message is what counts.
-    assert b"500" not in re.sub(rb"<style\b.*?</style>", b"", page.data, flags=re.DOTALL)
+    # The theme's colours are in the page's <style> (#8a6500 has "500" in it) and the easter eggs' settings in
+    # a <script> (a delay of 2500): the message is what counts.
+    body = re.sub(rb"<(style|script)\b.*?</\1>", b"", page.data, flags=re.DOTALL)
+    assert b"500" not in body
 
 
 def test_link_and_unlink_from_settings(oauth_app, oauth_client, oauth_db, portal, make_user, login):
     user = make_user("bob")
     login(oauth_client, user)
-    assert oauth_client.get("/settings/link-platform-account").status_code == 200
+    # The old page of its own leads to Settings → Security → Sign-in methods.
+    assert oauth_client.get("/settings/link-platform-account").headers["Location"].endswith(
+        "/settings/security#sign-in-methods")
+    page = oauth_client.get("/settings/security").get_data(as_text=True)
+    assert "Sign-in methods" in page and 'action="/settings/link-platform-account"' in page
     response = oauth_client.post("/settings/link-platform-account", data={"password": "wrong password"})
-    assert response.status_code == 401
+    assert "/settings/security" in response.headers["Location"]
+    assert not any(call[1].endswith("/oauth/token") for call in portal.calls)
     response = oauth_client.post("/settings/link-platform-account", data={"password": PASSWORD})
     query = parse_qs(urlsplit(response.headers["Location"]).query)
     assert query["redirect_uri"][0].endswith("/platform-oauth/link-callback")
     _callback(oauth_client, query, "/platform-oauth/link-callback")
     assert oauth_db.scalar("SELECT user_id FROM platform_oauth_links WHERE account_id = 'acct-1'") == user["id"]
+    assert "Connected" in oauth_client.get("/settings/security").get_data(as_text=True)
     oauth_client.post("/settings/unlink-platform-account", data={"password": "wrong password"})
     assert oauth_db.scalar("SELECT COUNT(*) FROM platform_oauth_links") == 1
     oauth_client.post("/settings/unlink-platform-account", data={"password": PASSWORD})
@@ -314,25 +322,24 @@ def _form_action(response):
 
 
 def test_link_page_lets_its_form_redirect_to_the_portal_only(oauth_client, portal, make_user, login):
-    # Chromium checks the redirect that answers the link form against this page's form-action.
+    # Chromium checks the redirect that answers the Connect form against this page's form-action.
     login(oauth_client, make_user("bob"))
-    page = oauth_client.get("/settings/link-platform-account")
+    page = oauth_client.get("/settings/security")
     assert page.status_code == 200 and _form_action(page) == f"'self' {PORTAL}"
-    refused = oauth_client.post("/settings/link-platform-account", data={"password": "wrong password"})
-    assert refused.status_code == 401 and _form_action(refused) == f"'self' {PORTAL}"
     assert _form_action(oauth_client.get("/settings/profile")) == "'self'"
     assert _form_action(oauth_client.get("/login")) == "'self'"
     response = oauth_client.post("/settings/link-platform-account", data={"password": PASSWORD})
     _callback(oauth_client, parse_qs(urlsplit(response.headers["Location"]).query), "/platform-oauth/link-callback")
-    linked = oauth_client.get("/settings/link-platform-account")
-    assert b"/settings/unlink-platform-account" in linked.data and _form_action(linked) == "'self'"
+    linked = oauth_client.get("/settings/security")
+    # Connected: Disconnect, and "Confirm with BananaWiki Hosting" (which redirects to the portal) on its forms.
+    assert b"/settings/unlink-platform-account" in linked.data and _form_action(linked) == f"'self' {PORTAL}"
 
 
 def test_link_page_takes_only_the_origin_of_the_authorize_url(app_factory, make_user, login):
     app = app_factory(environ={**OAUTH_ENV, "BW_PLATFORM_OAUTH_AUTHORIZE_URL": "http://Portal.Local:8080/o/authorize?x=1"})
     client = app.test_client()
     login(client, make_user("bob"))
-    assert _form_action(client.get("/settings/link-platform-account")) == "'self' http://portal.local:8080"
+    assert _form_action(client.get("/settings/security")) == "'self' http://portal.local:8080"
 
 
 @pytest.mark.parametrize(("url", "origin"), [

@@ -235,11 +235,9 @@ p.page-header__meta { display: block; }
 .section-stack > .table-wrap:last-child, .section-stack > .table-wrap:has(+ .pagination:last-child) { border-bottom: 0; }
 .page-header__actions { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 /* A settings page has one Save, in its header (forms.page_save): the header stays in view while the form
-   scrolls under it. A section another feature adds keeps its own button for the pages without that header
-   and marks it .form-save, which the header's Save replaces. */
+   scrolls under it. No section has a Save of its own; a section another feature adds joins the page's form. */
 .page-header--save { position: sticky; top: var(--topbar-height); z-index: 20; background: var(--bw-bg);
   margin-top: -.75rem; padding-top: .75rem; }
-.main:has(.page-header--save) .form-save { display: none; }
 .page-header__status { width: 100%; display: flex; flex-wrap: wrap; gap: .5rem; }
 .page-header__status:not(:has(> :not([hidden]))) { display: none; }
 .breadcrumbs { display: flex; flex-wrap: wrap; gap: .35rem; font-size: var(--font-size-sm); color: var(--muted); margin-bottom: .85rem; }
@@ -371,6 +369,10 @@ legend { font-weight: 650; padding: 0 .35rem; }
 :is(.form, .form-grid, .stack, .grid, .cluster, .btn-row, .input-group, .admin-filters, .perm-groups) > :is(.field, .check, fieldset) + :is(.field, .check, fieldset) { margin-top: 0; }
 .field > .check + .check, fieldset > .check + .check { margin-top: .35rem; }
 /* Many checkboxes (events, languages) in columns; every row lines up. */
+/* An option that applies only with the one above it: indented under that box, with a rule showing what it belongs to. */
+.sub-option { margin-inline-start: .5rem; padding-inline-start: 1.05rem; border-inline-start: 2px solid var(--border); }
+:is(.field, .check, fieldset, .sub-option) + .sub-option { margin-top: .5rem; }
+.sub-option + :is(.field, .check, fieldset) { margin-top: .9rem; }
 .check-grid { display: grid; gap: .35rem 1.25rem; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr)); }
 .check-grid > legend { grid-column: 1 / -1; }
 .check-grid > .check + .check, fieldset.check-grid > .check + .check { margin-top: 0; }
@@ -411,11 +413,9 @@ legend { font-weight: 650; padding: 0 .35rem; }
 /* A filter or clean-up row above a table keeps a gap from it. */
 .inline-fields--spaced { margin-bottom: 1rem; }
 .form-actions { padding-top: .25rem; }
-.form-actions--sticky { position: sticky; bottom: 0; z-index: 5; padding: .6rem 0; margin-top: 0;
-  background: var(--bw-bg); border-top: 1px solid var(--border); }
-/* A field scrolled into view by Tab stays above the sticky Save bar (WCAG 2.4.11). */
+/* A field scrolled into view by Tab stays below the top bar and a settings page's sticky header (WCAG 2.4.11). */
 html { scroll-padding-top: calc(var(--topbar-height) + .75rem); }
-html:has(.form-actions--sticky) { scroll-padding-bottom: 4.5rem; }
+html:has(.page-header--save) { scroll-padding-top: calc(var(--topbar-height) + 5.5rem); }
 .form-section { min-width: 0; padding-block: 1.25rem; border-bottom: 1px solid var(--border); }
 .form-section > :last-child { margin-bottom: 0; }
 .form-section h2 { font-size: 1.05rem; }
@@ -527,7 +527,7 @@ label.btn > input.visually-hidden { top: 0; left: 0; }
 label.btn:has(+ input.visually-hidden:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
 .split { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .75rem; }
 .stat { display: grid; gap: .15rem; align-content: start; }
-.stat__value { font-size: 1.4rem; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.stat__value { font-size: 1.125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .stat__label { font-size: var(--font-size-sm); color: var(--muted); overflow-wrap: anywhere; }
 /* With large text a long German label is hyphenated inside its card. */
 :lang(de) .stat__label { hyphens: auto; }
@@ -539,10 +539,8 @@ label.btn:has(+ input.visually-hidden:focus-visible) { outline: 2px solid var(--
 .mono { font-family: var(--font-mono); }
 .text-danger { color: var(--danger); }
 .text-success { color: var(--success); }
-.empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--muted); }
-.empty-state h2, .empty-state h3 { color: var(--bw-text); }
+.empty-state { margin: 0 0 1rem; color: var(--muted); }
 .empty-state > :last-child { margin-bottom: 0; }
-.empty-state p { text-wrap: pretty; }
 /* Rows without bullets or indent, separated by a rule (short lists inside a card). */
 .list-plain { list-style: none; margin: 0; padding: 0; }
 .list-plain--rows > li { padding: .6rem 0; border-bottom: 1px solid var(--border); }
@@ -639,12 +637,11 @@ label.btn:has(+ input.visually-hidden:focus-visible) { outline: 2px solid var(--
 }
 
 /* Badges, alerts, tabs */
-.badge { display: inline-flex; align-items: center; gap: .25rem; padding: .05rem .4rem; border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs); font-weight: 500; background: var(--surface-3); color: var(--bw-text); white-space: nowrap; }
-.badge--primary { background: transparent; box-shadow: inset 0 0 0 1px var(--border-strong); }
-.badge--danger { background: var(--danger-bg); color: var(--danger); }
-.badge--warning { background: var(--warning-bg); color: var(--warning); }
-.badge--success { background: var(--success-bg); color: var(--success); }
+.badge { display: inline-flex; align-items: center; gap: .25rem; padding: 0 .3rem; border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs); box-shadow: inset 0 0 0 1px var(--border-strong); color: var(--muted); white-space: nowrap; }
+.badge--danger { background: var(--danger-bg); color: var(--danger); box-shadow: none; }
+.badge--warning { background: var(--warning-bg); color: var(--warning); box-shadow: none; }
+.badge--success { background: var(--success-bg); color: var(--success); box-shadow: none; }
 .count-pill { min-width: 1.3rem; height: 1.3rem; padding: 0 .35rem; border-radius: 999px; background: var(--danger-strong);
   color: #fff; font-size: var(--font-size-xs); font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 

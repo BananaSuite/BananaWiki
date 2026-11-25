@@ -265,9 +265,10 @@ def permissions(layout_id: int) -> list[dict[str, Any]]:
 
 def set_permission(layout_id: int, permission: str, *, user_id: str | None = None,
                    role: str | None = None, actor_id: str | None = None) -> None:
-    from .access import PERMISSIONS
+    from ... import sharing
 
-    if permission not in PERMISSIONS or bool(user_id) == bool(role):
+    permission = sharing.level_name(permission) or ""
+    if not permission or bool(user_id) == bool(role):
         raise CanvasError("canvas.error.bad_request")
     column, value = ("user_id", user_id) if user_id else ("role", role)
     with db.transaction():
@@ -297,8 +298,20 @@ def remove_permission(layout_id: int, *, user_id: str | None = None, role: str |
 # List order
 
 
+def order_owner(user: dict[str, Any] | None) -> str | None:
+    """Whose saved order the list follows: the user's own, else the order shared while the retired
+    open-access setting was on (``user_id`` NULL), which nobody changes any more."""
+    if user is None:
+        return None
+    if db.scalar("SELECT 1 FROM canvas_user_layout_order WHERE user_id = ? LIMIT 1", (user["id"],)):
+        return user["id"]
+    if db.scalar("SELECT 1 FROM canvas_user_layout_order WHERE user_id IS NULL LIMIT 1"):
+        return None
+    return user["id"]
+
+
 def order_ids(owner_id: str | None) -> list[int]:
-    """Saved order for one user, or the shared order (``None``) under open access."""
+    """Saved order for one user, or the order shared under the retired open access (``None``)."""
     return db.column(
         "SELECT layout_id FROM canvas_user_layout_order WHERE user_id IS ? ORDER BY sort_order, id", (owner_id,)
     )
