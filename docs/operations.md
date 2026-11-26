@@ -340,7 +340,7 @@ sudo bananawiki updates disable
 The timer (`bananawiki-update.timer`) runs `update --automatic`, which does
 nothing while the wiki was stopped on purpose, never crosses divergent
 history and never retries a failed commit. `--interval` is in minutes (5 to
-10080), `--keep-backups` 2 to 30.
+10080), `--keep-backups` 1 to 30.
 
 An automatic update installs new code as root with nobody reviewing it, so
 `updates enable` requires signature checks (`--require-signatures`, given
@@ -560,6 +560,11 @@ Packages the controller makes by itself (`auto-`, `before-update-`,
 keeps) are pruned after every update and backup to the newest
 `--keep-backups` of each kind (3 by default); the package `rollback` would
 restore is always kept. Manual packages are never pruned automatically.
+Changing the count with `updates enable --keep-backups N` (or `updates
+disable --keep-backups N`) prunes at once. With 1, only the package of the
+last update stays: enough to roll that update back, so use it when the server
+is backed up elsewhere. Releases up to 1.8.0 refuse a count of 1: set it to 2
+before rolling back to one of them.
 
 ### Managed servers: encrypted Git backups
 

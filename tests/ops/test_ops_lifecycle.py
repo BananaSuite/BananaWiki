@@ -425,6 +425,26 @@ def test_pruning_keeps_rollback_target_and_newest(managed_root, fake_system, ups
     assert set(removed) == set(names[1:3])
 
 
+def test_one_package_can_be_kept_and_a_new_count_prunes_at_once(managed_root, fake_system, upstream, legacy):
+    from bananawiki.ops.files import maintenance_lock
+
+    manager = Manager(managed_root, system=fake_system)
+    backups = managed_root / "backups"
+    names = [f"auto-2026010{index}T000000Z-aaaaaa.tar.gz" for index in range(1, 5)]
+    for name in names:
+        (backups / name).write_bytes(b"x")
+    result = manager.set_updates(True, keep=1, allow_unsigned=True)
+    assert result["keep_backups"] == 1 and set(result["packages_removed"]) == set(names[:-1])
+    assert [path.name for path in backups.glob("auto-*")] == [names[-1]]
+    with pytest.raises(ValueError, match="between 1 and 30"):
+        manager.set_updates(True, keep=0, allow_unsigned=True)
+    # An operation that is running holds the lock and prunes with the new count when it ends.
+    (backups / names[0]).write_bytes(b"x")
+    with maintenance_lock(managed_root):
+        assert "packages_removed" not in manager.set_updates(True, keep=1, allow_unsigned=True)
+    assert (backups / names[0]).is_file()
+
+
 def test_every_backup_prunes_the_packages_failed_remote_backups_kept(managed_root, fake_system, upstream, legacy):
     manager = Manager(managed_root, system=fake_system)
     backups = managed_root / "backups"

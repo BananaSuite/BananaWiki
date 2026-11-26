@@ -212,8 +212,8 @@ class Manager:
             raise ValueError("Invalid automatic-update policy.") from None
         if type(data.get("enabled")) is not bool or not 5 <= interval <= 10080:
             raise ValueError("Invalid automatic-update policy.")
-        if not 2 <= keep <= 30:
-            raise ValueError("Keep between 2 and 30 automatic backups.")
+        if not 1 <= keep <= 30:
+            raise ValueError("Keep between 1 and 30 automatic backups.")
         return data
 
     def package_limit(self) -> int:
@@ -1808,17 +1808,26 @@ class Manager:
                 raise ValueError("Choose a check interval between 5 minutes and one week.")
             policy["interval_minutes"] = interval
         if keep is not None:
-            if not 2 <= keep <= 30:
-                raise ValueError("Keep between 2 and 30 automatic backups.")
+            if not 1 <= keep <= 30:
+                raise ValueError("Keep between 1 and 30 automatic backups.")
             policy["keep_backups"] = keep
         # A separate file, so a running updater cannot overwrite a later opt-out.
         write_json(self.config_dir / "updates.json", policy)
         self.system.install_timer(settings, policy)
+        removed: list[str] = []
+        if keep is not None:
+            # A lower count frees its space now, not at the next update or backup.
+            try:
+                with maintenance_lock(self.root):
+                    removed = self.prune_backups()
+            except RuntimeError:  # an operation is running: it prunes with the new count when it ends
+                pass
         source = self.source()
         return self.event("updates", "enabled" if enabled else "disabled", source=source["url"],
                           track=source["track"], branch=source["branch"], fallback_branch=source.get("fallback_branch"),
                           signing=source.get("signing", "none"),
-                          interval_minutes=policy["interval_minutes"], keep_backups=policy["keep_backups"])
+                          interval_minutes=policy["interval_minutes"], keep_backups=policy["keep_backups"],
+                          **({"packages_removed": removed} if removed else {}))
 
     def prune_backups(self) -> list[str]:
         """Keep the newest ``keep_backups`` of each kind of package made automatically, and the rollback target."""

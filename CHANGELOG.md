@@ -101,6 +101,10 @@
 * Signing in to a wiki or an app through the portal now always takes a click on the portal, like other "sign in with" buttons: after the first consent, a short **Continue as *name*** page replaces the silent redirect (also on the owner's own wikis), so people see which account they are signing in with. **Use another account** signs out of the portal and comes back to the sign-in afterwards. The portal no longer issues sign-in codes without a click, so the limit of 20 such codes a minute is gone.
 * Schema 12 adds the apps, the consent given to each, the scopes of a sign-in code and the sign-in mode of a wiki.
 
+### Managed servers
+
+* `updates enable --keep-backups` accepts 1 (it was 2 to 30): only the package of the last update is kept, which is what `rollback` restores. Meant for servers that are backed up elsewhere. Changing the count now prunes the packages beyond it at once instead of at the next update or backup. Releases before this one refuse a count of 1, so set it to 2 before a `rollback` to one of them.
+
 ## 1.8.0 — 2026-11-09
 
 ### Upgrading

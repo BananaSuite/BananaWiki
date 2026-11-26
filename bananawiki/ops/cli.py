@@ -135,7 +135,7 @@ def parser() -> argparse.ArgumentParser:
     updates = commands.add_parser("updates", help="Opt into or out of automatic source updates")
     updates.add_argument("action", choices=("status", "enable", "disable"))
     updates.add_argument("--interval", type=int, help="Check interval in minutes (5 to 10080)")
-    updates.add_argument("--keep-backups", type=int, help="Automatic and pre-update packages to keep (2 to 30)")
+    updates.add_argument("--keep-backups", type=int, help="Automatic and pre-update packages to keep (1 to 30)")
     source_options(updates)
     source = commands.add_parser("source", help="Inspect or change the update source and its authentication")
     source.add_argument("action", choices=("show", "set", "check"))
